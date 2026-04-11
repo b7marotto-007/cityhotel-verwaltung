@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
   <title>City Hotel Wettingen — Verwaltung</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23C0392B'/><text x='16' y='23' font-size='20' text-anchor='middle' fill='white'>🏨</text></svg>"/>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800&display=swap" rel="stylesheet"/>
@@ -10,6 +10,11 @@
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     html,body,#root{height:100%;overflow:hidden}
+    /* ── MOBILE: allow scrolling ── */
+    @media(max-width:768px){
+      html,body{height:auto!important;overflow:auto!important;overflow-x:hidden!important}
+      #root{height:auto!important;overflow:visible!important;min-height:100vh}
+    }
     body{font-family:'DM Sans',sans-serif;background:#F6F5F1;-webkit-font-smoothing:antialiased}
     @keyframes spin{to{transform:rotate(360deg)}}
     @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
