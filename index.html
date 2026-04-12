@@ -620,138 +620,91 @@ react-dom/cjs/react-dom-client.production.js:
 </style>
 
 <script>
-/* MV 5-Seiten Runtime-Patch */
-/* ============================================================
-   MV-PATCH: 5-Seiten-Mietvertrag (Runtime-Injektion)
-   ============================================================
-   Einbinden: am Ende von index.html, direkt vor </body>:
-     <script src="mv_patch.js"><\/script>
-   Benötigt keine Änderung am bestehenden Build.
-   Hängt sich an window.open und erweitert Popups, in denen
-   "Mietvertrag für Wohnräume" gerendert wird, auf 5 Seiten.
-   ============================================================ */
+/* MV 5-Seiten Runtime-Patch v2
+   Strategie: window.open hooken. Jedes geöffnete Popup, dessen <title>
+   "Mietvertrag" enthält, wird nach dem document.write der App zur
+   5-Seiten-Version umgebaut. Funktioniert unabhängig davon, ob Ar()
+   global ist oder nicht. */
 (function(){
   'use strict';
 
-  var HEUTE = new Date().toLocaleDateString('de-CH');
-
-  var PRINT_CSS = ''
-    + '<style id="mv-patch-css">'
+  var CSS = ''
+    + '<style>'
     + '*{box-sizing:border-box}'
     + 'body{margin:0;background:#fff;font-family:Arial,sans-serif}'
-    + '.mv-page{background:#fff;page-break-after:always;padding:18mm 16mm;'
-    + 'font-family:Arial,sans-serif;font-size:9pt;line-height:1.35;color:#000;'
-    + 'position:relative;min-height:257mm;box-sizing:border-box}'
+    + '.mv-page{background:#fff;margin:0 auto;position:relative;padding:18mm 16mm;min-height:257mm;page-break-after:always;font-size:9pt;line-height:1.35;color:#000}'
+    + '.mv-kopf{display:flex;justify-content:space-between;border-bottom:1px solid #888;padding-bottom:4px;margin-bottom:10px;font-size:8.5pt;color:#555}'
+    + '.mv-fuss{position:absolute;bottom:10mm;left:16mm;right:16mm;display:flex;justify-content:space-between;font-size:7.5pt;color:#777;border-top:1px solid #ccc;padding-top:4px}'
     + '.mv-page h1{font-size:20pt;font-weight:700;margin:0 0 12px;letter-spacing:-0.01em}'
     + '.mv-page h2{font-size:11pt;margin:10px 0 4px}'
     + '.mv-page h3{font-size:10pt;margin:8px 0 3px}'
     + '.mv-page p{margin:0 0 6px}'
-    + '.mv-page ul{margin:0 0 6px 18px;padding:0}'
-    + '.mv-kopf{display:flex;justify-content:space-between;border-bottom:1px solid #888;'
-    + 'padding-bottom:4px;margin-bottom:10px;font-size:8.5pt;color:#555}'
-    + '.mv-fuss{position:absolute;bottom:10mm;left:16mm;right:16mm;display:flex;'
-    + 'justify-content:space-between;font-size:7.5pt;color:#777;'
-    + 'border-top:1px solid #ccc;padding-top:4px}'
-    + '.mv-cols2{column-count:2;column-gap:8mm}'
-    + '.mv-heiztab{width:100%;border-collapse:collapse;font-size:8.5pt;margin-top:6px}'
-    + '.mv-heiztab th,.mv-heiztab td{border:1px solid #bbb;padding:3px 6px;text-align:left}'
-    + '.mv-heiztab th{background:#f0f0f0}'
-    + '@media print{@page{size:A4;margin:0}.mv-toolbar{display:none!important}}'
-    + '@media (max-width:768px){'
-    + '.mv-page{padding:10mm 6mm!important;min-height:auto!important;font-size:9pt!important}'
-    + '.mv-cols2{column-count:1!important}'
-    + '.mv-fuss{position:static!important;margin-top:16px!important;flex-wrap:wrap!important;gap:4px!important;font-size:7pt!important}'
-    + '.mv-kopf{font-size:8pt!important}'
-    + '.mv-page h1{font-size:16pt!important}'
-    + '.mv-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}'
-    + '.mv-scroll table{min-width:340px}'
-    + '}'
-    + '.mv-toolbar{position:sticky;top:0;z-index:100;background:#1e1e1e;color:#fff;'
-    + 'padding:10px 16px;display:flex;gap:10px;justify-content:flex-end;'
-    + 'box-shadow:0 2px 6px rgba(0,0,0,.25)}'
-    + '.mv-toolbar button{padding:8px 18px;border:none;border-radius:6px;'
-    + 'background:#C0392B;color:#fff;cursor:pointer;font-size:13px;font-weight:600}'
+    + '.mv-cols{column-count:2;column-gap:8mm;font-size:8.5pt;line-height:1.3}'
+    + '.mv-cols h3{font-size:9.5pt;margin:6px 0 2px;break-after:avoid}'
+    + '.mv-cols p{margin:0 0 5px;break-inside:avoid}'
+    + '.mv-heiz{width:100%;border-collapse:collapse;font-size:8pt;margin:6px 0}'
+    + '.mv-heiz th,.mv-heiz td{border:1px solid #999;padding:3px 6px;text-align:left}'
+    + '.mv-heiz th{background:#eee}'
+    + '.mv-tb{position:sticky;top:0;z-index:100;background:#1e1e1e;color:#fff;padding:10px 16px;display:flex;gap:10px;justify-content:flex-end}'
+    + '.mv-tb button{padding:8px 18px;border:none;border-radius:6px;background:#C0392B;color:#fff;cursor:pointer;font-size:13px;font-weight:600}'
+    + '@media print{@page{size:A4;margin:0}body{margin:0}.mv-page{margin:0!important}.mv-tb{display:none!important}}'
+    + '@media (max-width:768px){.mv-page{padding:10mm 6mm!important;min-height:auto!important}.mv-cols{column-count:1!important}.mv-fuss{position:static!important;margin-top:16px!important;flex-wrap:wrap!important;font-size:7pt!important}.mv-page h1{font-size:16pt!important}.mv-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}.mv-scroll table{min-width:320px}}'
     + '</style>';
 
-  function kopf(){return '<div class="mv-kopf"><span>'+HEUTE+'</span><span>Mietvertrag</span></div>';}
+  function kopf(h){return '<div class="mv-kopf"><span>'+h+'</span><span>Mietvertrag</span></div>';}
   function fuss(n){return '<div class="mv-fuss"><span>© mietrechtspraxis/mp · www.mietrecht.ch · Ausgabe 2016 — Erstellt mit City Apartments Immobilienverwaltung</span><span>'+n+' / 5</span></div>';}
 
-  // ===== SEITE 1: Erläuterungen =====
-  var SEITE_1 = '<div class="mv-page">'+kopf()
+  function seite1(H){return '<div class="mv-page">'+kopf(H)
     +'<h1>Mietvertrag für Wohnräume</h1>'
     +'<p><b>Dieses Mietvertragsformular kann in der ganzen Schweiz verwendet werden.</b> Es regelt das Mietverhältnis aufgrund der gesetzlichen Bestimmungen und enthält Regelungen für häufig vorkommende Konfliktpunkte.</p>'
     +'<p>Das Formular ist <i>nicht</i> geeignet für Wohnungen, deren Erstellung durch die öffentliche Hand gefördert wurde und deren Mietzinse durch eine Behörde kontrolliert werden. Hier empfiehlt sich die Verwendung des paritätischen Mietvertrags für Genossenschaftswohnungen.</p>'
-    +'<p>In Kantonen, die für die Mitteilung des Anfangsmietzinses ein amtliches Formular eingeführt haben, muss dieses Formular zwingend dem Mietvertrag beigelegt werden. Das Formular findet man auf mietrecht.ch/Formular oder der amtlichen Homepage des Kantons.</p>'
+    +'<p>In Kantonen, die für die Mitteilung des Anfangsmietzinses ein amtliches Formular eingeführt haben, muss dieses Formular zwingend dem Mietvertrag beigelegt werden.</p>'
     +'<h2>Erläuterungen zum Ausfüllen des Vertragsformulars</h2>'
-    +'<p>Nachfolgend finden Sie Hinweise zu einzelnen Rubriken im Vertragsformular:</p>'
     +'<h3>zu 1. Vertragsparteien</h3>'
-    +'<p><b>zu 1.1. Vertretung des Vermieters:</b> Als Vermieterin/Vermieter ist derjenige einzutragen, der aus dem Mietvertrag gegenüber der Mieterschaft berechtigt und verpflichtet ist. Bei Änderungen teilt dies zumindest der alte Vermieter dem Mieter schriftlich mit. Wird der Vermieter vertreten, so muss diese Vertretung zur Unterzeichnung des Vertrages berechtigt sein.</p>'
-    +'<p><b>zu 1.2. Mieterschaft/Solidarmiete:</b> Wird der Vertrag von mehreren Mietern unterzeichnet, spricht man von «Solidarmiete». Sämtliche Unterzeichnenden haften gegenüber dem Vermieter vollumfänglich. Beim Auszug eines Mitmieters bleibt dieser solidarisch haftbar, sofern er nicht schriftlich entlassen wird.</p>'
+    +'<p><b>1.1. Vertretung des Vermieters:</b> Als Vermieter ist derjenige einzutragen, der aus dem Mietvertrag berechtigt und verpflichtet ist. Wird der Vermieter vertreten, muss die Vertretung zur Unterzeichnung berechtigt sein.</p>'
+    +'<p><b>1.2. Mieterschaft/Solidarmiete/Mitmiete:</b> Unterzeichnen mehrere Mieter, haften alle vollumfänglich. Beim Auszug eines Mitmieters bleibt dieser solidarisch haftbar, sofern nicht schriftlich entlassen.</p>'
     +'<h3>zu 2. Mietsache</h3>'
-    +'<p>Ist die Mietsache eine Ferienwohnung (max. 3 Monate) oder eine luxuriöse Wohnung mit mehr als sechs Wohnräumen, gelten Art. 253 ff. OR nicht oder nur eingeschränkt.</p>'
+    +'<p>Ferienwohnungen unter 3 Monaten und luxuriöse Wohnungen mit mehr als 6 Wohnräumen unterliegen Art. 253 ff. OR nicht oder nur eingeschränkt.</p>'
     +'<h3>zu 3. Mietzeit und Kündigung</h3>'
-    +'<p><b>zu 3.2. Mietdauer:</b> Echte Option zur Verlängerung kann durch Ankreuzen oder in Besondere Vereinbarungen festgehalten werden.</p>'
-    +'<p><b>zu 3.3. Kündigungsfrist:</b> Mindestkündigungsfrist für Wohnräume = 3 Monate. Längere Fristen frei vereinbar.</p>'
-    +'<p><b>zu 3.3. Kündigungstermin:</b> Parteien frei. Bestimmt auch Zeitpunkt möglicher Vertragsänderungen.</p>'
+    +'<p><b>3.2. Mietdauer:</b> Soll ein Vertrag mit fester Dauer verlängert werden können (Option), kann dies durch Ankreuzen oder in Besonderen Vereinbarungen geregelt werden.</p>'
+    +'<p><b>3.3. Kündigungsfrist:</b> Mindestkündigungsfrist für Wohnräume 3 Monate. Längere Fristen möglich.</p>'
+    +'<p><b>3.3. Kündigungstermin:</b> Parteien frei. Frist und Termin bestimmen auch, wann Vertragsänderungen wirksam werden können.</p>'
     +'<h3>zu 4. Mietzins</h3>'
-    +'<p><b>zu 4.1. Netto-Mietzins:</b> Entgelt für die Mietsache. Sind keine Nebenkosten separat aufgeführt, sind sie im Netto enthalten. Spätere Anpassungen werden auf dem Netto berechnet.</p>'
-    +'<p><b>zu 4.2. Nebenkosten:</b> «Akonto» = Vorauszahlung mit späterer Abrechnung. «Pauschal» = keine Abrechnungspflicht, muss mutmasslichem Aufwand entsprechen.</p>'
-    +'<p><b>zu 4.4. Indexierter Mietzins:</b> Erfordert Vertragsdauer von mind. 5 Jahren. Zugunsten des Mieters abänderbar.</p>'
-    +'<p><b>zu 4.5. Berechnungsgrundlagen:</b> Referenzzinssatz, Landesindex (max. 40%-Überwälzung), allgemeine Kostensteigerungen (Pauschale 0.25–1% p.a. üblich).</p>'
-    +'<p><b>zu 4.6. Vorbehalt (Mietzinsreserve):</b> Einseitige Erklärung des Vermieters, dass Mietzins nicht kostendeckend ist. Differenz in Franken/Prozent ausweisen und begründen.</p>'
+    +'<p><b>4.1. Netto-Mietzins:</b> Entgelt für die Mietsache. Sind keine Heiz-/Nebenkosten aufgeführt, sind sie enthalten. Spätere Anpassungen werden auf Netto-Mietzins berechnet.</p>'
+    +'<p><b>4.2. Nebenkosten:</b> Akonto = Vorauszahlung mit Abrechnung. Pauschal = keine Abrechnungspflicht, muss jedoch dem mutmasslichen Aufwand entsprechen.</p>'
+    +'<p><b>4.4. Indexierter Mietzins:</b> Vertrag mindestens 5 Jahre fest. Kann einseitig zugunsten des Mieters abgeändert werden.</p>'
+    +'<p><b>4.5. Berechnungsgrundlagen:</b> Kalkulationsbasis. Referenzzinssatz anzugeben. LIK max. 40% überwälzbar. Allgemeine Kostensteigerungen i.d.R. 0.25–1%/Jahr pauschal.</p>'
+    +'<p><b>4.6. Vorbehalt:</b> Nicht kostendeckender Mietzins dem Mieter unter dieser Rubrik anzuzeigen. In Franken/Prozent und klar begründet.</p>'
     +'<h3>zu 5. Sicherheitsleistungen</h3>'
-    +'<p><b>zu 5.1. Kaution:</b> Max. 3 Monatsmieten, Anlage bei einer Bank auf Namen des Mieters.</p>'
+    +'<p><b>5.1. Kaution:</b> Max. 3 Monatsmieten. Bei Bank auf Namen des Mieters anzulegen.</p>'
     +'<h3>zu 6. Besondere Vereinbarungen</h3>'
-    +'<ul>'
-    +'<li>Recht zur Installation eigener Geräte (z.B. Waschmaschine).</li>'
-    +'<li>Zustimmung zur Haltung eines Haustiers.</li>'
-    +'<li>Bestimmungen zu Garten-Mitbenützung.</li>'
-    +'<li>Wertvermehrende Investitionen des Vermieters (ob im Mietzins enthalten).</li>'
-    +'<li>Zusicherungen zu Mietzinsanpassungen und Vorbehalten.</li>'
-    +'<li>Recht zur beruflichen Tätigkeit in der Wohnung.</li>'
-    +'<li>Optionen zur Vertragsverlängerung / vorzeitigen Kündigung.</li>'
-    +'</ul>'
-    +fuss(1)+'</div>';
+    +'<p>Platz für Abmachungen wie: Abwaschmaschine installieren, Haustierhaltung, Gartennutzung, wertvermehrende Investitionen, Zusicherungen zu Mietzinserhöhungen, berufliche Tätigkeit in der Wohnung, Verlängerungsoption, einseitige Kündigung bei fester Dauer.</p>'
+    +fuss(1)+'</div>';}
 
-  // ===== SEITE 4: AGB 1–13 =====
-  var SEITE_4 = '<div class="mv-page">'+kopf()
+  function seite4(H){return '<div class="mv-page">'+kopf(H)
     +'<h1 style="font-size:16pt">Allgemeine Bedingungen zum «Mietvertrag für Wohnräume»</h1>'
-    +'<p style="font-size:8.5pt;font-style:italic">In diesen Bestimmungen wird auf die weibliche Form verzichtet und «Mieter, Vermieter» als Oberbegriff verwendet.</p>'
-    +'<div class="mv-cols2" style="font-size:8.5pt;line-height:1.3">'
-    +'<h3>1. Übergabe</h3><p>Der Vermieter übergibt dem Mieter das Mietobjekt zum vereinbarten Zeitpunkt in gebrauchsfähigem und gereinigtem Zustand. Bei gemeinsamer Protokollerstellung hat der Mieter spätere Mängel nach Entdeckung schriftlich anzuzeigen. Der Vermieter gibt auf Verlangen den Mietzins des Vormieters bekannt (vorbehalten bleiben kantonale Formularpflichten).</p>'
-    +'<h3>2. Schlüsselverzeichnis</h3><p>Bei Übergabe wird ein Schlüsselverzeichnis erstellt. Verlorene Schlüssel sind vom Mieter auf eigene Kosten zu ersetzen.</p>'
-    +'<h3>3. Gebrauch des Mietobjekts</h3><p>Gebrauch zum vertraglich vereinbarten Zweck. Wesentliche Gebrauchsänderungen bedürfen der Zustimmung des Vermieters.</p>'
-    +'<h3>4. Unterhalt</h3><p><b>A. Normaler Unterhalt:</b> Der Vermieter unterhält das Mietobjekt und behebt Mängel. Mängel sind zu melden. Der Mieter hat Anspruch auf Behebung, evtl. Mietzinsherabsetzung und Schadenersatz. Reparaturen mit Anzeigefrist (bei Gebrauchseinschränkung mind. 30 Tage).</p>'
-    +'<p><b>B. Kleiner Unterhalt:</b> Dem Mieter obliegen kleine Reinigungen und Ausbesserungen ohne Fachwissen bis Fr. 150.–.</p>'
-    +'<h3>5. Erneuerungsarbeiten</h3><p>Erneuerungen ohne Zustimmung nur zumutbar und bei ungekündigtem Vertrag. Umbauten mind. 4 Monate vorher anzeigen mit Projektbeschreibung, Terminplan und erwarteter Mietzinserhöhung. Bei Mietzinserhöhung über 15% der Nettomiete: 3 Jahre Kündigungsschutz.</p>'
-    +'<h3>6. Änderungen durch den Mieter</h3><p>Erneuerungen und Änderungen bedürfen schriftlicher Zustimmung. <b>A.</b> Wiederherstellungspflicht nur bei schriftlicher Vereinbarung. Mehrwert: Entschädigungsanspruch. <b>B.</b> Änderungen ausserhalb (Storen, Schilder, Antennen) nur mit schriftlicher Zustimmung.</p>'
-    +'<h3>7. Private Apparate</h3><p>Apparate mit Wasseranschluss (Waschmaschine, Geschirrspüler) nur mit schriftlicher Zustimmung, die ohne triftige Gründe nicht verweigert werden kann.</p>'
-    +'<h3>8. Hinterlegungsverfahren</h3><p>Bei Pflichtverletzung des Vermieters schriftliche Fristsetzung mit Hinterlegungsandrohung. Geltendmachung bei Schlichtungsbehörde innert 30 Tagen seit erster Hinterlegung.</p>'
-    +'<h3>9. Verrechnung</h3><p>Mieter und Vermieter können Forderungen aus dem Mietverhältnis verrechnen.</p>'
-    +'<h3>10. Untermiete</h3><p>(Art. 262 OR) Nur mit Zustimmung. Verweigerung zulässig bei: a) keine Bekanntgabe der Bedingungen; b) missbräuchliche Bedingungen; c) wesentliche Nachteile. Der Mieter haftet für Untermietergebrauch.</p>'
-    +'<h3>11. Übertragung der Miete</h3><p>Nur mit schriftlicher Zustimmung des Vermieters. Zustimmung kann verweigert werden.</p>'
-    +'<h3>12. Besichtigungsrecht</h3><p>Unter 48-stündiger Voranzeige für Eigentumswahrung, Reparaturen und Renovationen. Vermietungsbesichtigungen nur bei gekündigten Mietverhältnissen.</p>'
-    +'<h3>13. Familienwohnungen</h3><p>(Art. 169 ZGB, 266m/n OR) <b>A. Kündigung:</b> Nur mit schriftlicher Zustimmung des Ehegatten. Vermieterkündigung gesondert an beide. <b>B. Meldepflicht:</b> Innert 6 Monaten bei Verheiratung, Trennung, Scheidung, Tod, Haushaltsveränderung, Nutzungsänderung.</p>'
-    +'</div>'+fuss(4)+'</div>';
+    +'<div class="mv-cols">'
+    +'<h3>1. Übergabe</h3><p>Übergabe in gebrauchsfähigem, gereinigtem Zustand. Nicht im Protokoll aufgeführte Mängel schriftlich anzeigen. Mietzins des Vormieters auf Verlangen bekanntgeben.</p>'
+    +'<h3>2. Schlüsselverzeichnis</h3><p>Bei Übergabe Verzeichnis erstellen. Verlorene Schlüssel Ende Mietdauer auf Kosten des Mieters ersetzen.</p>'
+    +'<h3>3. Gebrauch des Mietobjekts</h3><p>Zweckgemäss. Wesentliche Änderungen nur mit Zustimmung. Geduldete Änderungen nur aus wichtigen Gründen widerrufbar.</p>'
+    +'<h3>4. Unterhalt</h3><p><b>A. Normaler Unterhalt:</b> Vermieter hält instand, behebt Mängel. Anzeigepflicht Mieter. Bei Einschränkung des Gebrauchs Ankündigung 30 Tage. <b>B. Kleiner Unterhalt:</b> Mieter trägt Reinigungen/Ausbesserungen bis Fr. 150.–.</p>'
+    +'<h3>5. Erneuerungen/bauliche Änderungen</h3><p>Ohne Zustimmung nur zumutbar und bei ungekündigtem Vertrag. Luxuriös nur mit Zustimmung. Anzeige mindestens 4 Monate vorher. Bei Mietzinserhöhung über 15%: 3 Jahre Kündigungsschutz.</p>'
+    +'<h3>6. Änderungen durch Mieter</h3><p>Schriftliche Zustimmung nötig. Wiederherstellung nur bei schriftlicher Vereinbarung. Mehrwert → Entschädigung. Aussen (Storen, Schilder, Antennen) nur mit schriftlicher Zustimmung.</p>'
+    +'<h3>7. Private Apparate</h3><p>Waschmaschinen, Tumbler, Geschirrspüler etc. nur mit schriftlicher Zustimmung, die nicht ohne Grund verweigert werden kann.</p>'
+    +'<h3>8. Hinterlegungsverfahren</h3><p>Bei Vermieterpflichtverletzung Frist setzen, Hinterlegung androhen. Fall bei Schlichtungsbehörde innert 30 Tagen geltend machen.</p>'
+    +'<h3>9. Verrechnung</h3><p>Forderungen aus Mietverhältnis können verrechnet werden.</p>'
+    +'<h3>10. Untermiete</h3><p>Art. 262 OR. Zustimmung nur verweigerbar bei: a) fehlender Bekanntgabe der Bedingungen; b) missbräuchlichen Bedingungen; c) wesentlichen Nachteilen.</p>'
+    +'<h3>11. Übertragung der Miete</h3><p>Nur mit schriftlicher Zustimmung. Kann verweigert werden.</p>'
+    +'<h3>12. Besichtigungsrecht</h3><p>48h Voranzeige. Vermietungsbesichtigung nur bei gekündigtem Mietverhältnis.</p>'
+    +'<h3>13. Familienwohnungen</h3><p>Art. 169 ZGB, 266m/n OR. Kündigung und Zahlungsfrist gesondert an beide Ehegatten. Meldepflicht innert 6 Monaten bei Verheiratung, Trennung, Scheidung, Tod, Haushaltsänderung, Nutzungsänderung.</p>'
+    +'</div>'+fuss(4)+'</div>';}
 
-  // ===== SEITE 5: AGB 14–20 + Heizkostentabelle =====
-  var SEITE_5 = '<div class="mv-page">'+kopf()
-    +'<div class="mv-cols2" style="font-size:8.5pt;line-height:1.3">'
-    +'<h3>14. Haustiere</h3><p>Kleintiere (Hamster, Kanarienvögel, Zierfische) in üblichem Rahmen erlaubt. Grössere Tiere (Katzen, Hunde, Hasen, Papageien, Reptilien) nur mit schriftlicher Zustimmung. Widerruf aus sachlichen Gründen nach zweimaliger eingeschriebener Abmahnung mit 3-Monats-Frist.</p>'
-    +'<h3>15. Mietzinsanpassung</h3><p><b>A.</b> Erhöhung auf amtlichem Formular, mind. 10 Tage vor Kündigungsfristbeginn. <b>B. Indexierung (mind. 5 Jahre):</b> Max. 100% der Indexänderung, jährlich, 1 Monat Voranzeige auf amtlichem Formular. Wertvermehrende Investitionen während fester Dauer nur bei Vereinbarung oder max. 10% der Nettomiete.</p>'
-    +'<h3>16. Nebenkosten, Warmwasser, Heizung</h3><p><b>A. Allgemeines:</b> Entgelt für tatsächliche Aufwendungen. Nur geschuldet wenn ausdrücklich vereinbart (Art. 257a II OR). Mieter hat Einsichtsrecht in Belege. Mind. 1x jährlich detaillierte Abrechnung.</p>'
-    +'<p><b>B. Pauschalbeträge:</b> Entsprechen mutmasslichem Aufwand (Dreijahresdurchschnitt). Keine Abrechnung.</p>'
-    +'<p><b>C. Akontobeiträge:</b> Nachforderungen und Rückerstattungen innert 30 Tagen. Heiz-/Warmwasserabrechnung nach speziellem Verteilschlüssel innert 6 Monaten. Anrechenbar: Elektrizität Brenner/Pumpe, Reinigung, Revision, Entkalkung, Wartung, Versicherung, Verwaltung. Nicht anrechenbar: Reparatur, Erneuerung, Verzinsung, Abschreibung.</p>'
-    +'<h3>17. Rückgabe</h3><p>In gutem, gereinigtem Zustand unter Berücksichtigung vertragsgemässer Abnützung. Spätestens am Tag nach Mietende, 12 Uhr (bei Feiertagen: nächster Werktag). Vermieter hat Mängel sofort zu melden, sonst Anspruchsverlust (ausser nicht erkennbare Mängel).</p>'
-    +'<h3>18. Ausserterminliche Kündigung</h3><p>Rückgabe ohne Fristeinhaltung möglich bei Vorschlag eines zumutbaren, zahlungsfähigen Ersatzmieters zu gleichen Bedingungen. Vermieter muss Wiedervermietung anstreben. Insertionskosten beim Vermieter.</p>'
-    +'<h3>19. Schlussabrechnung</h3><p>Innert 3 Monaten seit Auszug, in begründeten Fällen 6 Monate. Heiz-/Nebenkosten: siehe Ziff. 16C.</p>'
-    +'<h3>20. Anwendbares Recht</h3><p>Schweizerisches OR (Art. 253 ff.). Gerichtsstand: Ort der Mietsache.</p>'
-    +'</div>'
-    +'<div class="mv-scroll" style="margin-top:10px">'
-    +'<div style="font-weight:700;font-size:9pt;margin-bottom:4px">Anteilmässige Belastung Heiz- und Warmwasserkosten</div>'
-    +'<table class="mv-heiztab">'
-    +'<thead><tr><th>Monat</th><th>Heizung ohne Warmwasser</th><th>Heizung mit Warmwasser</th></tr></thead>'
-    +'<tbody>'
+  function seite5(H){return '<div class="mv-page">'+kopf(H)
+    +'<div class="mv-cols">'
+    +'<h3>14. Haustiere</h3><p>Kleintiere (Hamster, Kanarienvögel, Zierfische) ohne Zustimmung in üblicher Anzahl. Grössere Tiere nur mit schriftlicher Zustimmung. Widerruf nach 2× eingeschriebener Abmahnung, Frist 3 Monate.</p>'
+    +'<h3>15. Mietzinsanpassung</h3><p><b>A.</b> Ohne feste Dauer: Erhöhung per amtlichem Formular, 10 Tage vor Kündigungsfrist. <b>B.</b> Bei fester Dauer ≥ 5 Jahren: Indexierung (LIK) möglich, jährlich max. 100% der Indexänderung. Formel: (neuer Index − alter Index)/alter Index × A.</p>'
+    +'<h3>16. Nebenkosten, Warmwasser, Heizung</h3><p><b>A.</b> Nur wenn vereinbart geschuldet. Einsichtsrecht, jährliche Abrechnung. <b>B. Pauschal:</b> Durchschnitt 3 Jahre, keine Abrechnung. <b>C. Akonto:</b> Abrechnung nach Rechnungsperiode, Nachforderung/Rückerstattung innert 30 Tagen.</p>'
+    +'<div class="mv-scroll"><table class="mv-heiz"><thead><tr><th>Monat</th><th>ohne WW</th><th>mit WW</th></tr></thead><tbody>'
     +'<tr><td>Januar</td><td>17.5%</td><td>13.6%</td></tr>'
     +'<tr><td>Februar</td><td>14.5%</td><td>12.1%</td></tr>'
     +'<tr><td>März</td><td>13.5%</td><td>11.5%</td></tr>'
@@ -764,98 +717,103 @@ react-dom/cjs/react-dom-client.production.js:
     +'<tr><td>Oktober</td><td>10.0%</td><td>9.5%</td></tr>'
     +'<tr><td>November</td><td>13.5%</td><td>10.7%</td></tr>'
     +'<tr><td>Dezember</td><td>17.0%</td><td>13.0%</td></tr>'
-    +'<tr style="font-weight:700;background:#f0f0f0"><td>Total</td><td>100.0%</td><td>100.0%</td></tr>'
+    +'<tr><td><b>Total</b></td><td><b>100%</b></td><td><b>100%</b></td></tr>'
     +'</tbody></table></div>'
-    +fuss(5)+'</div>';
+    +'<p><b>Anrechenbar:</b> Elektrizität Brenner/Pumpe, Betrieb Alternativenergien, Reinigung Anlage/Kamin, Auskratzen/Ausbrennen Heizkessel, Revision inkl. Öltank, Entkalken, Verbrauchserfassung, Wartung, Versicherung nur für Heizung/Tank, Verwaltungsarbeit. <b>Nicht anrechenbar:</b> Reparatur, Erneuerung, Verzinsung, Abschreibung. Heizkosten nicht vermieteter Räume trägt Vermieter.</p>'
+    +'<h3>17. Rückgabe</h3><p>Guter, gereinigter Zustand. Spätestens am Tag nach Mietende 12 Uhr, an Werktagen. Mängel sofort melden, sonst Verwirkung (ausser verdeckte).</p>'
+    +'<h3>18. Ausserterminliche Kündigung</h3><p>Mieter kann jederzeit zurückgeben wenn zumutbarer, zahlungsfähiger Nachmieter zu gleichen Bedingungen vorgeschlagen wird.</p>'
+    +'<h3>19. Schlussabrechnung</h3><p>Innert 3 Monaten nach Auszug, begründet bis 6. Heiz-/NK siehe Ziff. 16C.</p>'
+    +'<h3>20. Recht/Gerichtsstand</h3><p>OR Art. 253 ff. Gerichtsstand Ort der Mietsache.</p>'
+    +'</div>'+fuss(5)+'</div>';}
 
-  var TOOLBAR = '<div class="mv-toolbar">'
-    +'<button onclick="window.print()">🖨 Drucken</button>'
-    +'<button onclick="window.close()" style="background:#555">Schliessen</button>'
-    +'</div>';
+  function umbauen(doc){
+    try {
+      var heute = new Date().toLocaleDateString('de-CH');
+      var body = doc.body;
+      if (!body || body.children.length === 0) return false;
 
-  // ===== Popup-Hook: window.open überwachen =====
-  var origOpen = window.open;
-  window.open = function(url, name, features){
-    var win = origOpen.apply(window, arguments);
-    if(!win) return win;
-    // URL-Popups (echte Navigation) nicht anfassen
-    if(url && url !== '' && url !== 'about:blank') return win;
+      // Kinder einsammeln, bei "4.3" splitten
+      var kids = Array.prototype.slice.call(body.childNodes);
+      var splitIdx = -1;
+      for (var i=0; i<kids.length; i++){
+        var n = kids[i];
+        if (n.nodeType === 1 && /4\.3/.test(n.textContent || '')){
+          splitIdx = i; break;
+        }
+      }
+      if (splitIdx === -1) splitIdx = Math.floor(kids.length/2);
 
-    // Warten bis Ar() mit document.write/close fertig ist, dann patchen
+      var p1 = kids.slice(0, splitIdx);
+      var p2 = kids.slice(splitIdx);
+
+      var page2 = doc.createElement('div');
+      page2.className = 'mv-page';
+      page2.innerHTML = kopf(heute);
+      for (var a=0;a<p1.length;a++) page2.appendChild(p1[a]);
+      page2.insertAdjacentHTML('beforeend', fuss(2));
+
+      var page3 = doc.createElement('div');
+      page3.className = 'mv-page';
+      page3.innerHTML = kopf(heute);
+      for (var b=0;b<p2.length;b++) page3.appendChild(p2[b]);
+      page3.insertAdjacentHTML('beforeend', fuss(3));
+
+      while(body.firstChild) body.removeChild(body.firstChild);
+
+      var tb = doc.createElement('div');
+      tb.className = 'mv-tb';
+      tb.innerHTML = '<button onclick="window.print()">🖨 Drucken</button><button onclick="window.close()" style="background:#555">Schliessen</button>';
+      body.appendChild(tb);
+
+      body.insertAdjacentHTML('beforeend', seite1(heute));
+      body.appendChild(page2);
+      body.appendChild(page3);
+      body.insertAdjacentHTML('beforeend', seite4(heute));
+      body.insertAdjacentHTML('beforeend', seite5(heute));
+
+      doc.head.insertAdjacentHTML('beforeend', CSS);
+      console.log('[mv_patch] Mietvertrag umgebaut (5 Seiten)');
+      return true;
+    } catch(e){
+      console.error('[mv_patch] Fehler beim Umbau:', e);
+      return false;
+    }
+  }
+
+  function isMietvertragPopup(w){
+    try {
+      if (!w || !w.document) return false;
+      var t = (w.document.title || '') + ' ' + (w.document.body ? w.document.body.textContent.slice(0,500) : '');
+      return /Mietvertrag/i.test(t);
+    } catch(e){ return false; }
+  }
+
+  function beobachten(popup){
+    if (!popup) return;
     var tries = 0;
+    var max = 100; // 10 Sekunden
     var iv = setInterval(function(){
       tries++;
-      try{
-        if(!win || win.closed){ clearInterval(iv); return; }
-        var doc = win.document;
-        var title = (doc.title || '').toLowerCase();
-        var bodyTxt = doc.body ? (doc.body.innerText || '').slice(0, 500) : '';
-
-        // Ist das ein Mietvertrag-Popup?
-        var isMV = title.indexOf('mietvertrag') >= 0
-                || bodyTxt.toLowerCase().indexOf('mietvertrag') >= 0;
-
-        if(!isMV){
-          if(tries > 20) clearInterval(iv);
+      try {
+        if (popup.closed) { clearInterval(iv); return; }
+        if (popup.document && popup.document.body && popup.document.body.children.length > 3 && isMietvertragPopup(popup)){
+          clearInterval(iv);
+          setTimeout(function(){ umbauen(popup.document); }, 150);
           return;
         }
-        if(doc.getElementById('mv-patch-css')){ clearInterval(iv); return; }
-        // Ready-Check: document.write muss durch sein
-        if(doc.readyState !== 'complete' && doc.readyState !== 'interactive'){
-          if(tries < 40) return;
-        }
-        clearInterval(iv);
-        patchDocument(doc);
-      }catch(err){
-        if(tries > 40){ clearInterval(iv); console.warn('[mv_patch]', err); }
-      }
-    }, 120);
-    return win;
+      } catch(e){}
+      if (tries > max) clearInterval(iv);
+    }, 100);
+  }
+
+  var origOpen = window.open;
+  window.open = function(){
+    var p = origOpen.apply(window, arguments);
+    if (p) beobachten(p);
+    return p;
   };
 
-  function patchDocument(doc){
-    // 1. CSS injizieren
-    doc.head.insertAdjacentHTML('beforeend', PRINT_CSS);
-
-    // 2. Bestehenden Body-Inhalt = Formular (alte 2 Seiten)
-    var alterInhalt = doc.body.innerHTML;
-
-    // 3. Versuche, Seitenumbruch vor "4.3." einzufügen
-    //    Wir suchen einen Text-Knoten, der mit "4.3" beginnt
-    var pageBreak = '<div style="page-break-before:always;height:0"></div>';
-    var split = splitAt43(alterInhalt);
-
-    var formularTeil1 = '<div class="mv-page">'+kopf()+split.teil1+fuss(2)+'</div>';
-    var formularTeil2 = '<div class="mv-page">'+kopf()+split.teil2+fuss(3)+'</div>';
-
-    // 4. Body neu zusammensetzen
-    doc.body.innerHTML = TOOLBAR + SEITE_1 + formularTeil1 + formularTeil2 + SEITE_4 + SEITE_5;
-
-    // 5. Title updaten
-    if(doc.title && doc.title.indexOf('— 5 Seiten') < 0){
-      doc.title = doc.title + ' — 5 Seiten';
-    }
-  }
-
-  // Versucht, HTML an "4.3. Abrechnung" zu teilen
-  function splitAt43(html){
-    var patterns = [
-      /(<[^>]+>[^<]*4\.3\.\s*Abrechnung)/i,
-      /(<[^>]+>[^<]*4\.3\.)/i,
-      /(4\.3\.\s*Abrechnung)/i
-    ];
-    for(var i=0; i<patterns.length; i++){
-      var m = html.match(patterns[i]);
-      if(m && m.index > 200){
-        return { teil1: html.slice(0, m.index), teil2: html.slice(m.index) };
-      }
-    }
-    // Fallback: ungefähr in der Mitte teilen
-    var mid = Math.floor(html.length / 2);
-    return { teil1: html.slice(0, mid), teil2: html.slice(mid) };
-  }
-
-  console.log('[mv_patch] aktiv — Mietvertrag wird auf 5 Seiten erweitert');
+  console.log('[mv_patch v2] aktiv — hooke window.open für Mietvertrag-Popups');
 })();
 
 </script>
