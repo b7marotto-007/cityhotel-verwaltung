@@ -728,6 +728,9 @@ react-dom/cjs/react-dom-client.production.js:
 
   function umbauen(doc){
     try {
+      if (doc.__mvPatched || (doc.defaultView && doc.defaultView.__mvPatched)) { return true; }
+      doc.__mvPatched = true;
+      if (doc.defaultView) doc.defaultView.__mvPatched = true;
       var heute = new Date().toLocaleDateString('de-CH');
       var body = doc.body;
       if (!body || body.children.length === 0) return false;
@@ -790,20 +793,42 @@ react-dom/cjs/react-dom-client.production.js:
 
   function beobachten(popup){
     if (!popup) return;
-    var tries = 0;
-    var max = 100; // 10 Sekunden
+    var tries = 0, lastLen = 0, stableCount = 0, max = 150;
     var iv = setInterval(function(){
       tries++;
       try {
         if (popup.closed) { clearInterval(iv); return; }
-        if (popup.document && popup.document.body && popup.document.body.children.length > 3 && isMietvertragPopup(popup)){
-          clearInterval(iv);
-          setTimeout(function(){ umbauen(popup.document); }, 150);
+        if (!popup.document || !popup.document.body) return;
+        if (popup.__mvPatched || popup.document.__mvPatched) { clearInterval(iv); return; }
+        if (!isMietvertragPopup(popup)) {
+          if (tries > 20) { clearInterval(iv); }
           return;
         }
+        var len = popup.document.body.innerHTML.length;
+        if (len > 500 && len === lastLen) {
+          stableCount++;
+          if (stableCount >= 5) {
+            clearInterval(iv);
+            var finalCheck = function(){
+              try {
+                if (popup.closed || popup.__mvPatched) return;
+                var l2 = popup.document.body.innerHTML.length;
+                if (l2 !== len) { setTimeout(finalCheck, 400); return; }
+                popup.__mvPatched = true;
+                console.log("[mv_patch] baue um, final len=", l2);
+                umbauen(popup.document);
+              } catch(e){ console.error(e); }
+            };
+            setTimeout(finalCheck, 600);
+            return;
+          }
+        } else {
+          stableCount = 0;
+        }
+        lastLen = len;
       } catch(e){}
       if (tries > max) clearInterval(iv);
-    }, 100);
+    }, 80);
   }
 
   var origOpen = window.open;
