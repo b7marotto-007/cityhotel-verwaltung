@@ -631,18 +631,20 @@ var IMG_P5='data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA4KCw0LCQ4ND
 
 var CSS='<style>'
 +'*{box-sizing:border-box}'
-+'body{margin:0;background:#fff;font-family:Arial,sans-serif}'
-+'.mv-page{background:#fff;margin:0 auto;position:relative;page-break-after:always;overflow:hidden}'
-+'.mv-img-page{padding:0;width:210mm;min-height:297mm}'
-+'.mv-img-page img{width:100%;height:auto;display:block}'
-+'.mv-form-page{padding:14mm 14mm 12mm;min-height:297mm;font-size:9pt;line-height:1.35;color:#000}'
++'html,body{margin:0;padding:0;background:#fff;font-family:Arial,sans-serif}'
++'@page{size:A4;margin:0}'
++'.mv-page{background:#fff;margin:0 auto;position:relative;width:210mm;height:297mm;page-break-after:always;page-break-inside:avoid;overflow:hidden}'
++'.mv-page:last-child{page-break-after:auto}'
++'.mv-img-page{padding:0}'
++'.mv-img-page img{width:210mm;height:297mm;object-fit:contain;display:block}'
++'.mv-form-page{padding:14mm 14mm 15mm;font-size:9pt;line-height:1.35;color:#000}'
 +'.mv-kopf{display:flex;justify-content:space-between;border-bottom:1px solid #888;padding-bottom:4px;margin-bottom:10px;font-size:8pt;color:#555}'
 +'.mv-fuss{position:absolute;bottom:6mm;left:14mm;right:14mm;display:flex;justify-content:space-between;font-size:7pt;color:#777;border-top:1px solid #ccc;padding-top:3px}'
-+'.mv-fuss-img{position:absolute;bottom:4mm;left:12mm;right:12mm;display:flex;justify-content:space-between;font-size:7pt;color:#777;background:rgba(255,255,255,0.9);padding:2px 4px}'
++'.mv-fuss-img{position:absolute;bottom:3mm;left:6mm;right:6mm;display:flex;justify-content:space-between;font-size:7pt;color:#555;background:rgba(255,255,255,0.85);padding:2px 4px;border-radius:3px}'
 +'.mv-tb{position:sticky;top:0;z-index:100;background:#1e1e1e;color:#fff;padding:10px 16px;display:flex;gap:10px;justify-content:flex-end}'
 +'.mv-tb button{padding:8px 18px;border:none;border-radius:6px;background:#C0392B;color:#fff;cursor:pointer;font-size:13px;font-weight:600}'
-+'@media print{@page{size:A4;margin:0}body{margin:0}.mv-page{margin:0!important}.mv-tb{display:none!important}}'
-+'@media(max-width:768px){.mv-img-page{width:100%!important;min-height:auto!important}.mv-form-page{padding:8mm 5mm 10mm!important;min-height:auto!important}.mv-fuss,.mv-fuss-img{position:static!important;margin-top:10px!important;flex-wrap:wrap!important}}'
++'@media print{body{margin:0}.mv-page{margin:0!important;box-shadow:none!important}.mv-tb{display:none!important}}'
++'@media(max-width:768px){.mv-page{width:100%!important;height:auto!important;min-height:auto!important}.mv-img-page img{width:100%!important;height:auto!important}.mv-form-page{padding:8mm 5mm 12mm!important}.mv-fuss,.mv-fuss-img{position:static!important;margin-top:8px!important;flex-wrap:wrap!important}}'
 +'</style>';
 
 function kopf(h){return '<div class="mv-kopf"><span>'+h+'</span><span>Mietvertrag</span></div>';}
