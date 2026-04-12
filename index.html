@@ -810,51 +810,78 @@ function seite5(H){return '<div class="mv-page">'+kopf(H)
 
 function umbauen(doc){
   try {
-    if (doc.__mvDone) return;
-    doc.__mvDone = true;
+    if (doc.__mvDone) { console.log('[mv_patch] bereits gemacht, skip'); return; }
     var heute = new Date().toLocaleDateString('de-CH');
     var body = doc.body;
-    if (!body) return;
+    if (!body) { console.log('[mv_patch] kein body'); return; }
+    console.log('[mv_patch] Start Umbau, body hat', body.children.length, 'Kinder');
 
-    var kids = Array.prototype.slice.call(body.childNodes);
+    // Alle existierenden Kinder in ein Fragment retten
+    var frag = doc.createDocumentFragment();
+    while (body.firstChild) frag.appendChild(body.firstChild);
+
+    // Aus dem Fragment eine Liste der Element-Knoten (keine Whitespace-Textknoten)
+    var kids = [];
+    for (var i=0; i<frag.childNodes.length; i++){
+      var n = frag.childNodes[i];
+      if (n.nodeType === 1 || (n.nodeType === 3 && n.textContent.trim())) kids.push(n);
+    }
+    console.log('[mv_patch] gefundene Elemente:', kids.length);
+
+    // Splitpunkt: Index, ab dem Element "4.3" enthält
     var splitIdx = -1;
-    for (var i=0; i<kids.length; i++){
-      var n = kids[i];
-      if (n.nodeType === 1 && /4\.3/.test(n.textContent || '')) { splitIdx = i; break; }
+    for (var j=0; j<kids.length; j++){
+      if (kids[j].textContent && /4\.3/.test(kids[j].textContent)) { splitIdx = j; break; }
     }
     if (splitIdx === -1) splitIdx = Math.floor(kids.length/2);
+    console.log('[mv_patch] Split bei Index', splitIdx);
 
     var p1 = kids.slice(0, splitIdx);
     var p2 = kids.slice(splitIdx);
 
+    // Formular-Seite 2 bauen
     var page2 = doc.createElement('div');
     page2.className = 'mv-page';
     page2.innerHTML = kopf(heute);
     for (var a=0;a<p1.length;a++) page2.appendChild(p1[a]);
     page2.insertAdjacentHTML('beforeend', fuss(2));
 
+    // Formular-Seite 3 bauen
     var page3 = doc.createElement('div');
     page3.className = 'mv-page';
     page3.innerHTML = kopf(heute);
     for (var b=0;b<p2.length;b++) page3.appendChild(p2[b]);
     page3.insertAdjacentHTML('beforeend', fuss(3));
 
-    while(body.firstChild) body.removeChild(body.firstChild);
-
+    // Toolbar
     var tb = doc.createElement('div');
     tb.className = 'mv-tb';
     tb.innerHTML = '<button onclick="window.print()">🖨 Drucken</button><button onclick="window.close()" style="background:#555">Schliessen</button>';
+
+    // CSS FIRST in head
+    doc.head.insertAdjacentHTML('beforeend', CSS);
+
+    // Reihenfolge zusammenbauen: TB, S1, P2, P3, S4, S5
     body.appendChild(tb);
 
-    body.insertAdjacentHTML('beforeend', seite1(heute));
+    var s1 = doc.createElement('div');
+    s1.innerHTML = seite1(heute);
+    while (s1.firstChild) body.appendChild(s1.firstChild);
+
     body.appendChild(page2);
     body.appendChild(page3);
-    body.insertAdjacentHTML('beforeend', seite4(heute));
-    body.insertAdjacentHTML('beforeend', seite5(heute));
 
-    doc.head.insertAdjacentHTML('beforeend', CSS);
-    console.log('[mv_patch] umgebaut');
-  } catch(e){ console.error('[mv_patch]', e); }
+    var s4 = doc.createElement('div');
+    s4.innerHTML = seite4(heute);
+    while (s4.firstChild) body.appendChild(s4.firstChild);
+
+    var s5 = doc.createElement('div');
+    s5.innerHTML = seite5(heute);
+    while (s5.firstChild) body.appendChild(s5.firstChild);
+
+    doc.__mvDone = true;
+    console.log('[mv_patch] fertig — body hat jetzt', body.children.length, 'Kinder');
+  } catch(e){ console.error('[mv_patch] Fehler:', e); }
 }
 
 function istMV(w){
