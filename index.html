@@ -619,6 +619,7 @@ react-dom/cjs/react-dom-client.production.js:
 }
 </style>
 
+
 <script>
 /* MV 5-Seiten Volltext-Patch v6
    Strategie: window.open hooken, popup.print überschreiben.
@@ -629,26 +630,26 @@ react-dom/cjs/react-dom-client.production.js:
 var CSS='<style>'
 +'*{box-sizing:border-box}'
 +'body{margin:0;background:#fff;font-family:Arial,sans-serif}'
-+'.mv-page{background:#fff;margin:0 auto;position:relative;padding:14mm 14mm 18mm;min-height:285mm;page-break-after:always;font-size:8.5pt;line-height:1.35;color:#000}'
-+'.mv-kopf{display:flex;justify-content:space-between;border-bottom:1px solid #888;padding-bottom:4px;margin-bottom:8px;font-size:8pt;color:#555}'
-+'.mv-fuss{position:absolute;bottom:6mm;left:14mm;right:14mm;display:flex;justify-content:space-between;font-size:7pt;color:#777;border-top:1px solid #ccc;padding-top:3px}'
-+'.mv-page h1{font-size:18pt;font-weight:700;margin:0 0 10px;letter-spacing:-0.01em}'
-+'.mv-page h2{font-size:11pt;margin:10px 0 4px;color:#000}'
-+'.mv-page h3{font-size:9.5pt;margin:6px 0 2px;font-weight:700}'
-+'.mv-page p{margin:0 0 5px;text-align:justify}'
-+'.mv-page ul{margin:0 0 6px 16px;padding:0}'
-+'.mv-page li{margin-bottom:2px}'
-+'.mv-cols{column-count:2;column-gap:7mm;font-size:8pt;line-height:1.32}'
-+'.mv-cols h3{font-size:9pt;margin:5px 0 2px;break-after:avoid;color:#000}'
-+'.mv-cols p{margin:0 0 4px;break-inside:avoid;text-align:justify}'
-+'.mv-heiz{width:100%;border-collapse:collapse;font-size:7.5pt;margin:4px 0;break-inside:avoid}'
-+'.mv-heiz th,.mv-heiz td{border:1px solid #999;padding:2px 5px;text-align:left}'
++'.mv-page{background:#fff;margin:0 auto;position:relative;padding:10mm 12mm 12mm;min-height:277mm;max-height:297mm;overflow:hidden;page-break-after:always;font-size:7.5pt;line-height:1.28;color:#000}'
++'.mv-kopf{display:flex;justify-content:space-between;border-bottom:1px solid #888;padding-bottom:3px;margin-bottom:6px;font-size:7pt;color:#555}'
++'.mv-fuss{position:absolute;bottom:5mm;left:12mm;right:12mm;display:flex;justify-content:space-between;font-size:6.5pt;color:#777;border-top:1px solid #ccc;padding-top:2px}'
++'.mv-page h1{font-size:15pt;font-weight:700;margin:0 0 6px;letter-spacing:-0.01em}'
++'.mv-page h2{font-size:9.5pt;margin:6px 0 3px;color:#000;font-weight:700}'
++'.mv-page h3{font-size:8pt;margin:4px 0 1px;font-weight:700}'
++'.mv-page p{margin:0 0 3px;text-align:justify}'
++'.mv-page ul{margin:0 0 4px 14px;padding:0}'
++'.mv-page li{margin-bottom:1px;font-size:7.3pt}'
++'.mv-cols{column-count:2;column-gap:5mm;font-size:7.3pt;line-height:1.28}'
++'.mv-cols h3{font-size:7.8pt;margin:3px 0 1px;break-after:avoid;color:#000}'
++'.mv-cols p{margin:0 0 3px;break-inside:avoid;text-align:justify}'
++'.mv-heiz{width:100%;border-collapse:collapse;font-size:6.8pt;margin:3px 0;break-inside:avoid}'
++'.mv-heiz th,.mv-heiz td{border:1px solid #999;padding:1px 4px;text-align:left}'
 +'.mv-heiz th{background:#eee}'
-+'.mv-formula{font-family:Georgia,serif;font-style:italic;padding:4px 8px;border-left:2px solid #888;margin:4px 0;background:#f6f6f6;break-inside:avoid;font-size:8pt}'
-+'.mv-tb{position:sticky;top:0;z-index:100;background:#1e1e1e;color:#fff;padding:10px 16px;display:flex;gap:10px;justify-content:flex-end}'
-+'.mv-tb button{padding:8px 18px;border:none;border-radius:6px;background:#C0392B;color:#fff;cursor:pointer;font-size:13px;font-weight:600}'
-+'@media print{@page{size:A4;margin:0}body{margin:0}.mv-page{margin:0!important}.mv-tb{display:none!important}}'
-+'@media(max-width:768px){.mv-page{padding:8mm 5mm 10mm!important;min-height:auto!important}.mv-cols{column-count:1!important}.mv-fuss{position:static!important;margin-top:12px!important;flex-wrap:wrap!important;font-size:6.5pt!important}.mv-page h1{font-size:15pt!important}.mv-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}.mv-scroll table{min-width:320px}}'
++'.mv-formula{font-family:Georgia,serif;font-style:italic;padding:2px 6px;border-left:2px solid #888;margin:2px 0;background:#f6f6f6;break-inside:avoid;font-size:7pt}'
++'.mv-tb{position:sticky;top:0;z-index:100;background:#1e1e1e;color:#fff;padding:8px 14px;display:flex;gap:8px;justify-content:flex-end}'
++'.mv-tb button{padding:7px 16px;border:none;border-radius:6px;background:#C0392B;color:#fff;cursor:pointer;font-size:12px;font-weight:600}'
++'@media print{@page{size:A4;margin:0}body{margin:0}.mv-page{margin:0!important;max-height:none!important}.mv-tb{display:none!important}}'
++'@media(max-width:768px){.mv-page{padding:6mm 4mm 8mm!important;min-height:auto!important;max-height:none!important;font-size:8pt!important}.mv-cols{column-count:1!important}.mv-fuss{position:static!important;margin-top:10px!important;flex-wrap:wrap!important;font-size:6pt!important}.mv-page h1{font-size:13pt!important}.mv-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}.mv-scroll table{min-width:320px}}'
 +'</style>';
 
 function kopf(h){return '<div class="mv-kopf"><span>'+h+'</span><span>Mietvertrag</span></div>';}
@@ -810,78 +811,51 @@ function seite5(H){return '<div class="mv-page">'+kopf(H)
 
 function umbauen(doc){
   try {
-    if (doc.__mvDone) { console.log('[mv_patch] bereits gemacht, skip'); return; }
+    if (doc.__mvDone) return;
+    doc.__mvDone = true;
     var heute = new Date().toLocaleDateString('de-CH');
     var body = doc.body;
-    if (!body) { console.log('[mv_patch] kein body'); return; }
-    console.log('[mv_patch] Start Umbau, body hat', body.children.length, 'Kinder');
+    if (!body) return;
 
-    // Alle existierenden Kinder in ein Fragment retten
-    var frag = doc.createDocumentFragment();
-    while (body.firstChild) frag.appendChild(body.firstChild);
-
-    // Aus dem Fragment eine Liste der Element-Knoten (keine Whitespace-Textknoten)
-    var kids = [];
-    for (var i=0; i<frag.childNodes.length; i++){
-      var n = frag.childNodes[i];
-      if (n.nodeType === 1 || (n.nodeType === 3 && n.textContent.trim())) kids.push(n);
-    }
-    console.log('[mv_patch] gefundene Elemente:', kids.length);
-
-    // Splitpunkt: Index, ab dem Element "4.3" enthält
+    var kids = Array.prototype.slice.call(body.childNodes);
     var splitIdx = -1;
-    for (var j=0; j<kids.length; j++){
-      if (kids[j].textContent && /4\.3/.test(kids[j].textContent)) { splitIdx = j; break; }
+    for (var i=0; i<kids.length; i++){
+      var n = kids[i];
+      if (n.nodeType === 1 && /4\.3/.test(n.textContent || '')) { splitIdx = i; break; }
     }
     if (splitIdx === -1) splitIdx = Math.floor(kids.length/2);
-    console.log('[mv_patch] Split bei Index', splitIdx);
 
     var p1 = kids.slice(0, splitIdx);
     var p2 = kids.slice(splitIdx);
 
-    // Formular-Seite 2 bauen
     var page2 = doc.createElement('div');
     page2.className = 'mv-page';
     page2.innerHTML = kopf(heute);
     for (var a=0;a<p1.length;a++) page2.appendChild(p1[a]);
     page2.insertAdjacentHTML('beforeend', fuss(2));
 
-    // Formular-Seite 3 bauen
     var page3 = doc.createElement('div');
     page3.className = 'mv-page';
     page3.innerHTML = kopf(heute);
     for (var b=0;b<p2.length;b++) page3.appendChild(p2[b]);
     page3.insertAdjacentHTML('beforeend', fuss(3));
 
-    // Toolbar
+    while(body.firstChild) body.removeChild(body.firstChild);
+
     var tb = doc.createElement('div');
     tb.className = 'mv-tb';
     tb.innerHTML = '<button onclick="window.print()">🖨 Drucken</button><button onclick="window.close()" style="background:#555">Schliessen</button>';
-
-    // CSS FIRST in head
-    doc.head.insertAdjacentHTML('beforeend', CSS);
-
-    // Reihenfolge zusammenbauen: TB, S1, P2, P3, S4, S5
     body.appendChild(tb);
 
-    var s1 = doc.createElement('div');
-    s1.innerHTML = seite1(heute);
-    while (s1.firstChild) body.appendChild(s1.firstChild);
-
+    body.insertAdjacentHTML('beforeend', seite1(heute));
     body.appendChild(page2);
     body.appendChild(page3);
+    body.insertAdjacentHTML('beforeend', seite4(heute));
+    body.insertAdjacentHTML('beforeend', seite5(heute));
 
-    var s4 = doc.createElement('div');
-    s4.innerHTML = seite4(heute);
-    while (s4.firstChild) body.appendChild(s4.firstChild);
-
-    var s5 = doc.createElement('div');
-    s5.innerHTML = seite5(heute);
-    while (s5.firstChild) body.appendChild(s5.firstChild);
-
-    doc.__mvDone = true;
-    console.log('[mv_patch] fertig — body hat jetzt', body.children.length, 'Kinder');
-  } catch(e){ console.error('[mv_patch] Fehler:', e); }
+    doc.head.insertAdjacentHTML('beforeend', CSS);
+    console.log('[mv_patch] umgebaut');
+  } catch(e){ console.error('[mv_patch]', e); }
 }
 
 function istMV(w){
@@ -894,28 +868,29 @@ function istMV(w){
 
 function beobachten(popup){
   if (!popup) return;
-  var tries = 0;
+  var tries = 0, lastLen = 0, stable = 0;
   var iv = setInterval(function(){
     tries++;
     try {
       if (popup.closed) { clearInterval(iv); return; }
       if (!popup.document || !popup.document.body) return;
-      if (!istMV(popup)) { if (tries > 30) clearInterval(iv); return; }
-      if (popup.__mvHooked) { clearInterval(iv); return; }
-      popup.__mvHooked = true;
-      clearInterval(iv);
-      console.log('[mv_patch] Popup erkannt, hooke print()');
+      if (popup.__mvDone) { clearInterval(iv); return; }
+      if (!istMV(popup)) { if (tries > 20) clearInterval(iv); return; }
 
-      var orig = popup.print;
-      popup.print = function(){
-        umbauen(popup.document);
-        setTimeout(function(){ try{ orig.call(popup); } catch(e){ window.print.call(popup); } }, 80);
-      };
-      // Fallback: nach 2s automatisch umbauen (für "Als PDF speichern" direkt im Browser)
-      setTimeout(function(){ umbauen(popup.document); }, 2000);
+      var len = popup.document.body.innerHTML.length;
+      if (len > 500 && len === lastLen) {
+        stable++;
+        if (stable >= 2) {
+          clearInterval(iv);
+          popup.__mvDone = true;
+          console.log('[mv_patch] Popup stabil, baue sofort um');
+          umbauen(popup.document);
+        }
+      } else { stable = 0; }
+      lastLen = len;
     } catch(e){}
     if (tries > 60) clearInterval(iv);
-  }, 100);
+  }, 50);
 }
 
 var origOpen = window.open;
