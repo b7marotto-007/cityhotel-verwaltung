@@ -667,7 +667,14 @@ function umbauen(doc){
     var kids = [];
     for (var i=0;i<frag.childNodes.length;i++){
       var n = frag.childNodes[i];
-      if (n.nodeType===1 || (n.nodeType===3 && n.textContent.trim())) kids.push(n);
+      if (n.nodeType===1 || (n.nodeType===3 && n.textContent.trim())) {
+        var txt = n.textContent || "";
+        if (/Erl\u00e4uterungen zum Ausf\u00fcllen|Allgemeine Bedingungen zum|Fortsetzung.*Allgemeine/i.test(txt) && txt.length > 100) {
+          console.log("[mv_patch] Alt-Block entfernt, len:", txt.length);
+          continue;
+        }
+        kids.push(n);
+      }
     }
 
     var splitIdx = -1;
@@ -747,7 +754,7 @@ window.open = function(){
   if (p) beobachten(p);
   return p;
 };
-console.log('[mv_patch v9] PDF-Bilder Modus aktiv');
+console.log('[mv_patch v11] PDF-Bilder Modus aktiv');
 })();
 
 </script>
