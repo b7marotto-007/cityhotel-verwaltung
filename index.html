@@ -624,6 +624,7 @@ react-dom/cjs/react-dom-client.production.js:
 </style>
 
 
+
 <script id="mv-new-pdf-module">
 /* Mietvertrag PDF — eigenständiger Tab, unabhängig von Ar() */
 (function () {
@@ -1983,7 +1984,10 @@ react-dom/cjs/react-dom-client.production.js:
     var tenant = tenants.filter(function (t) {
       return t.id === inv.tenantId;
     })[0] || {};
-    var phone = (tenant.phone || '').split('/')[0].split(',')[0].trim();
+    // Extract first phone from various formats: "+41 79 ..." / "+41 79 ... / +41 76 ..." / "079 ..., 076 ..."
+    var rawPhone = (tenant.phone || '').toString();
+    var phoneMatch = rawPhone.match(/[\+]?[\d][\d\s]{6,}/);
+    var phone = phoneMatch ? phoneMatch[0].trim() : '';
     var email = tenant.email || '';
 
     var history = inv.sendHistory || [];
@@ -2252,14 +2256,53 @@ react-dom/cjs/react-dom-client.production.js:
         var hashText = el.querySelector && el.querySelector('span[style*="monospace"]');
         if (!hashText) continue;
         var txt = hashText.textContent || '';
-        if (!/^#\d{4}-\d{3}|^#\d{4,}/.test(txt.trim())) continue;
+        // Match BOTH old (4+ digits) and new (YYYY-NNN) formats
+        if (!/^#[\d-]+$/.test(txt.trim())) continue;
         // This is an invoice row
         el.__inv_processed = true;
         var invNum = txt.replace(/^#/, '').trim();
+        // If number is in old format, rewrite it now (straggler that escaped intercept)
+        if (!parseNummer(invNum)) {
+          rewriteStragglerNumber(invNum);
+          // Skip attaching for this render; the reload/re-render will catch it
+          continue;
+        }
         attachSendButton(el, invNum);
         attachStatusBadge(el, invNum);
       }
     }
+  }
+
+  function rewriteStragglerNumber(oldNum) {
+    if (window.__inv_rewriting) return;
+    var invs = loadInvoices();
+    var inv = invs.filter(function (x) {
+      return String(x.nummer) === String(oldNum);
+    })[0];
+    if (!inv) return;
+    if (parseNummer(inv.nummer)) return; // already new format
+    window.__inv_rewriting = true;
+    var newNum = getNextNumberFromArray(invs, inv.id);
+    LOG('rewriting straggler', inv.nummer, '→', newNum);
+    inv.nummerOld = inv.nummer;
+    inv.nummer = newNum;
+    saveInvoices(invs);
+    setTimeout(function () {
+      window.__inv_rewriting = false;
+      // Force React re-render by triggering a storage event
+      try {
+        window.dispatchEvent(new StorageEvent('storage', { key: 'cache_pm_invoices' }));
+      } catch (e) {}
+      // Soft reload of the list view if React doesn't pick it up
+      setTimeout(function () {
+        if (
+          document.querySelector('span[style*="monospace"]') &&
+          document.querySelector('span[style*="monospace"]').textContent.indexOf(oldNum) !== -1
+        ) {
+          location.reload();
+        }
+      }, 500);
+    }, 100);
   }
 
   function attachSendButton(rowEl, invNum) {
