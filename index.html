@@ -627,6 +627,7 @@ react-dom/cjs/react-dom-client.production.js:
 
 
 
+
 <script id="mv-new-pdf-module">
 /* Mietvertrag PDF — eigenständiger Tab, unabhängig von Ar() */
 (function () {
@@ -2445,8 +2446,10 @@ react-dom/cjs/react-dom-client.production.js:
     migrateNumbers();
     interceptInvoiceSave();
 
-    // Use MutationObserver instead of polling — only scan when DOM actually changes,
-    // and debounce so rapid React re-renders don't trigger 100 scans.
+    // No automatic DOM scanning — that interferes with React inputs.
+    // Instead, scan on user actions:
+    //   - When user clicks any button (covers "Rechnungsliste" tab click)
+    //   - On initial load (might already be on list view)
     var pending = null;
     function scheduleScan() {
       if (pending) return;
@@ -2457,19 +2460,29 @@ react-dom/cjs/react-dom-client.production.js:
         } catch (e) {
           LOG('scan error', e);
         }
-      }, 250);
+      }, 350);
     }
-    try {
-      var obs = new MutationObserver(scheduleScan);
-      obs.observe(document.body, { childList: true, subtree: true });
-    } catch (e) {
-      LOG('observer setup failed, fallback to polling', e);
-      setInterval(scheduleScan, 1500);
-    }
-    // Also do an initial scan after init
-    setTimeout(scheduleScan, 500);
 
-    LOG('init complete. Next invoice #:', getNextNumber());
+    document.addEventListener(
+      'click',
+      function (e) {
+        // Ignore clicks on inputs / our own buttons
+        var t = e.target;
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT'))
+          return;
+        if (t && t.classList && (t.classList.contains('inv-send-btn') || t.classList.contains('inv-sent-badge')))
+          return;
+        scheduleScan();
+      },
+      true
+    );
+
+    // Initial scan after a delay so React has rendered
+    setTimeout(scheduleScan, 1000);
+    // One more after 3 seconds for slow devices
+    setTimeout(scheduleScan, 3000);
+
+    LOG('init complete (click-triggered mode). Next invoice #:', getNextNumber());
   }
 
   if (document.readyState === 'loading') {
