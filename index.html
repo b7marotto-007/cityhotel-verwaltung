@@ -731,47 +731,141 @@ react-dom/cjs/react-dom-client.production.js:
     return null;
   }
 
+  function findNavLink(sb, label, allowHidden) {
+    var els = sb.querySelectorAll('button, a, div');
+    var best = null;
+    var bestLen = Infinity;
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      if (el.id === 'mv-new-side') continue;
+      var txt = (el.textContent || '').trim();
+      if (!txt || txt.length > 30) continue;
+      if (txt.indexOf('PDF') !== -1) continue;
+      if (/offen|ausstehend|fällig|faellig/i.test(txt)) continue; // Banner ausschliessen
+      if (el.children.length > 6) continue;
+      if (txt.indexOf(label) === -1) continue;
+      if (!allowHidden && el.offsetHeight === 0) continue;
+      // Kürzeste Übereinstimmung gewinnt (= echter Nav-Eintrag, nicht Container)
+      if (txt.length < bestLen) {
+        best = el;
+        bestLen = txt.length;
+      }
+    }
+    return best;
+  }
+
+  function hideOldMietvertragEntry(sb) {
+    var ourLink = document.getElementById('mv-new-side');
+    var els = sb.querySelectorAll('button, a, div');
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      if (el.id === 'mv-new-side') continue;
+      if (ourLink && (el === ourLink || el.contains(ourLink) || ourLink.contains(el))) continue;
+      var txt = (el.textContent || '').trim();
+      if (!txt || txt.length > 30) continue;
+      if (txt.indexOf('PDF') !== -1) continue;
+      if (el.children.length > 6) continue;
+      var isMV =
+        txt === 'Mietvertrag' ||
+        txt.endsWith(' Mietvertrag') ||
+        (txt.length <= 16 && txt.endsWith('Mietvertrag'));
+      if (isMV && el.style.display !== 'none') {
+        el.style.display = 'none';
+        LOG('hid old sidebar entry:', txt);
+      }
+    }
+  }
+
   function injectSidebar() {
-    if (document.getElementById('mv-new-side')) return;
     var sb = findSidebar();
     if (!sb) return;
 
-    var link = document.createElement('div');
-    link.id = 'mv-new-side';
-    link.style.cssText =
-      'display:flex;align-items:center;gap:10px;padding:9px 14px;margin:2px 12px;' +
-      'cursor:pointer;font-size:13px;font-weight:500;border-radius:8px;' +
-      'font-family:inherit;letter-spacing:-0.01em;color:inherit;opacity:0.80;' +
-      'transition:background 0.15s,opacity 0.15s;';
-    link.innerHTML =
-      '<span style="font-size:15px;line-height:1">📄</span>' +
-      '<span>Mietvertrag PDF</span>';
-    link.addEventListener('mouseenter', function () {
-      link.style.background = 'rgba(255,255,255,0.08)';
-      link.style.opacity = '1';
-    });
-    link.addEventListener('mouseleave', function () {
-      link.style.background = 'transparent';
-      link.style.opacity = '0.80';
-    });
-    link.addEventListener('click', openPanel);
-    sb.appendChild(link);
-    LOG('sidebar link injected');
+    if (!document.getElementById('mv-new-side')) {
+      var oldEntry = findNavLink(sb, 'Mietvertrag', true);
+      var anchor = findNavLink(sb, 'Zahlungen', false);
+
+      var link;
+      if (oldEntry) {
+        link = oldEntry.cloneNode(true);
+        link.id = 'mv-new-side';
+        link.style.display = '';
+        link.style.cursor = 'pointer';
+        LOG('cloned old Mietvertrag entry, style preserved');
+      } else {
+        // Fallback: build manually (Sandwich-Icon, neutrale Farbe)
+        link = document.createElement('div');
+        link.id = 'mv-new-side';
+        link.style.cssText =
+          'display:flex;align-items:center;gap:10px;padding:9px 14px;margin:2px 12px;' +
+          'cursor:pointer;font-size:13px;font-weight:500;border-radius:8px;' +
+          'font-family:inherit;letter-spacing:-0.01em;color:inherit;opacity:0.85;' +
+          'transition:background 0.15s,opacity 0.15s;';
+        link.innerHTML =
+          '<span style="font-size:16px;line-height:1">☰</span>' +
+          '<span>Mietvertrag</span>';
+        link.addEventListener('mouseenter', function () {
+          link.style.background = 'rgba(255,255,255,0.06)';
+        });
+        link.addEventListener('mouseleave', function () {
+          link.style.background = 'transparent';
+        });
+        LOG('built fallback Mietvertrag entry');
+      }
+
+      // Eigener Click-Handler (capture phase, blockiert evtl. React-Handler im Klon)
+      link.addEventListener(
+        'click',
+        function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          openPanel();
+        },
+        true
+      );
+
+      // Direkt nach "Zahlungen" einfügen
+      if (anchor && anchor.parentNode) {
+        if (anchor.nextSibling) {
+          anchor.parentNode.insertBefore(link, anchor.nextSibling);
+        } else {
+          anchor.parentNode.appendChild(link);
+        }
+        LOG('inserted after Zahlungen');
+      } else {
+        sb.appendChild(link);
+        LOG('Zahlungen-Anchor nicht gefunden → angehängt');
+      }
+    }
+
+    hideOldMietvertragEntry(sb);
+  }
+
+  function ensurePanelStyles() {
+    if (document.getElementById('mv-panel-styles')) return;
+    var s = document.createElement('style');
+    s.id = 'mv-panel-styles';
+    s.textContent =
+      '#mv-panel{' +
+        'position:fixed;top:0;right:0;bottom:0;left:232px;' +
+        'background:' + COL_PAPER + ';' +
+        'z-index:99990;overflow-y:auto;' +
+        'font-family:"DM Sans",system-ui,-apple-system,sans-serif;' +
+      '}' +
+      '@media (max-width:768px){' +
+        '#mv-panel{left:0;top:56px;}' +
+      '}';
+    document.head.appendChild(s);
   }
 
   // === Panel (Formular-Overlay) ===
   function openPanel() {
     if (document.getElementById('mv-panel')) return;
     LOG('openPanel');
+    ensurePanelStyles();
     var tenants = loadTenants();
 
     var overlay = document.createElement('div');
     overlay.id = 'mv-panel';
-    overlay.style.cssText =
-      'position:fixed;inset:0;background:' +
-      COL_PAPER +
-      ';z-index:99990;overflow-y:auto;' +
-      'font-family:"DM Sans",system-ui,-apple-system,sans-serif;';
     overlay.innerHTML = buildPanelHTML(tenants);
     document.body.appendChild(overlay);
 
@@ -825,7 +919,7 @@ react-dom/cjs/react-dom-client.production.js:
       '  <div>',
       '    <h1 style="margin:0;font-size:26px;font-weight:800;letter-spacing:-0.03em;color:' +
         COL_DARK +
-        ';line-height:1.1;">📄 Mietvertrag PDF</h1>',
+        ';line-height:1.1;">📄 Mietvertrag</h1>',
       '    <p style="margin:6px 0 0;color:' +
         COL_GRAY +
         ';font-size:13px;letter-spacing:-0.01em;">Schweizer Mietvertrag mietrechtspraxis/mp · Ausgabe 2016</p>',
@@ -1512,6 +1606,132 @@ react-dom/cjs/react-dom-client.production.js:
     return h.join('\n');
   }
 
+  // === Supabase Auto-Setup ===
+  function setupSupabase() {
+    var CFG = {
+      url: 'https://jfohkhjyergkhfnjtqav.supabase.co',
+      key:
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impmb2hraGp5ZXJna2hmbmp0cWF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU4NDI5NDUsImV4cCI6MjA5MTQxODk0NX0.EBonSONk2CZd7vZ98fzgzGce_akq8HL_VFvM_LZOqj8'
+    };
+
+    var existing = localStorage.getItem('_supa_cfg');
+    if (existing) {
+      LOG('Supabase bereits konfiguriert');
+      return;
+    }
+
+    LOG('Teste Supabase-Verbindung...');
+    fetch(CFG.url + '/rest/v1/pm_kv?select=key&limit=1', {
+      headers: { apikey: CFG.key, Authorization: 'Bearer ' + CFG.key }
+    })
+      .then(function (res) {
+        if (!res.ok) {
+          LOG('Supabase-Test fehlgeschlagen, Status:', res.status);
+          if (res.status === 404 || res.status === 401) {
+            alert(
+              '⚠ Supabase-Tabelle "pm_kv" nicht gefunden oder kein Zugriff (Status ' +
+                res.status +
+                ').\n\nBitte folgendes SQL im Supabase SQL-Editor ausführen:\n\n' +
+                'create table pm_kv (key text primary key, value text, updated_at timestamptz default now());\n' +
+                'alter table pm_kv enable row level security;\n' +
+                'create policy "Allow all" on pm_kv for all using (true) with check (true);'
+            );
+          }
+          return null;
+        }
+        LOG('Supabase erreichbar — synchronisiere bestehende Daten...');
+        return syncExistingData(CFG);
+      })
+      .catch(function (e) {
+        LOG('Supabase Setup-Fehler:', e);
+        alert('Verbindung zu Supabase fehlgeschlagen: ' + e.message);
+      });
+  }
+
+  function syncExistingData(CFG) {
+    var keys = [
+      'pm_tenants',
+      'pm_payments',
+      'pm_invoices',
+      'pm_contracts',
+      'pm_firma',
+      'pm_files'
+    ];
+    var pushes = [];
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      var cached = localStorage.getItem('cache_' + k);
+      if (!cached) continue;
+      pushes.push(pushOne(CFG, k, cached));
+    }
+    if (pushes.length === 0) {
+      // Keine Daten lokal → einfach config speichern
+      localStorage.setItem('_supa_cfg', JSON.stringify(CFG));
+      alert('✅ Supabase verbunden! (Keine bestehenden Daten zum Synchronisieren)');
+      return;
+    }
+    return Promise.allSettled(pushes).then(function (results) {
+      var ok = 0,
+        fail = 0;
+      for (var i = 0; i < results.length; i++) {
+        if (results[i].status === 'fulfilled' && results[i].value) ok++;
+        else fail++;
+      }
+      LOG('Sync abgeschlossen:', ok, 'OK,', fail, 'Fehler');
+      localStorage.setItem('_supa_cfg', JSON.stringify(CFG));
+      alert(
+        '✅ Supabase verbunden!\n\n' +
+          ok +
+          ' Datenstände erfolgreich in die Cloud synchronisiert' +
+          (fail > 0 ? ' (' + fail + ' Fehler)' : '') +
+          '.\n\nSeite wird neu geladen.'
+      );
+      setTimeout(function () {
+        location.reload();
+      }, 800);
+    });
+  }
+
+  function pushOne(CFG, key, value) {
+    return fetch(CFG.url + '/rest/v1/pm_kv', {
+      method: 'POST',
+      headers: {
+        apikey: CFG.key,
+        Authorization: 'Bearer ' + CFG.key,
+        'Content-Type': 'application/json',
+        Prefer: 'resolution=merge-duplicates'
+      },
+      body: JSON.stringify({
+        key: key,
+        value: value,
+        updated_at: new Date().toISOString()
+      })
+    }).then(function (r) {
+      LOG('push', key, '→', r.status);
+      return r.ok;
+    });
+  }
+
+  function setupSidebarAutoClose() {
+    if (window.__mv_sb_close_attached) return;
+    window.__mv_sb_close_attached = true;
+    document.addEventListener(
+      'click',
+      function (e) {
+        var panel = document.getElementById('mv-panel');
+        if (!panel) return;
+        var ourLink = document.getElementById('mv-new-side');
+        if (ourLink && (e.target === ourLink || ourLink.contains(e.target))) return;
+        var sb = findSidebar();
+        if (sb && sb.contains(e.target)) {
+          LOG('sidebar click detected → closing panel');
+          closePanel();
+        }
+      },
+      true
+    );
+  }
+
   // === Init ===
   var schedulePending = false;
   function scheduleInject() {
@@ -1529,6 +1749,8 @@ react-dom/cjs/react-dom-client.production.js:
   } catch (e) {
     LOG('observer failed', e);
   }
+  setupSidebarAutoClose();
+  setTimeout(setupSupabase, 1000);
   var delays = [0, 200, 600, 1400, 3000, 6000];
   for (var i = 0; i < delays.length; i++) {
     setTimeout(injectSidebar, delays[i]);
