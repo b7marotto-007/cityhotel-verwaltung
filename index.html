@@ -625,6 +625,8 @@ react-dom/cjs/react-dom-client.production.js:
 
 
 
+
+
 <script id="mv-new-pdf-module">
 /* Mietvertrag PDF — eigenständiger Tab, unabhängig von Ar() */
 (function () {
@@ -2244,32 +2246,58 @@ react-dom/cjs/react-dom-client.production.js:
       encodeURIComponent(body);
   }
 
+  function isOnInvoiceListView() {
+    // Look for the dark "Rechnungsliste" tab (active state has dark bg)
+    var btns = document.querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++) {
+      var b = btns[i];
+      var t = (b.textContent || '').trim();
+      if (t !== 'Rechnungsliste') continue;
+      try {
+        var cs = window.getComputedStyle(b);
+        // Active button has dark/non-transparent background
+        var bg = cs.backgroundColor || '';
+        if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
+          // Also must have light text color (white-ish)
+          var col = cs.color || '';
+          var m = col.match(/rgb\((\d+),\s*(\d+),\s*(\d+)/);
+          if (m && parseInt(m[1]) > 200 && parseInt(m[2]) > 200) return true;
+        }
+      } catch (e) {}
+    }
+    return false;
+  }
+
   // === Inject "Senden" buttons into invoice list rows ===
   function injectListButtons() {
-    var rows = document.querySelectorAll('[data-inv-row]');
-    if (!rows.length) {
-      // find rows by structure: look for rows that contain an invoice number pattern
-      var candidates = document.querySelectorAll('div');
-      for (var i = 0; i < candidates.length; i++) {
-        var el = candidates[i];
-        if (el.__inv_processed) continue;
-        var hashText = el.querySelector && el.querySelector('span[style*="monospace"]');
-        if (!hashText) continue;
-        var txt = hashText.textContent || '';
-        // Match BOTH old (4+ digits) and new (YYYY-NNN) formats
-        if (!/^#[\d-]+$/.test(txt.trim())) continue;
-        // This is an invoice row
-        el.__inv_processed = true;
-        var invNum = txt.replace(/^#/, '').trim();
-        // If number is in old format, rewrite it now (straggler that escaped intercept)
-        if (!parseNummer(invNum)) {
-          rewriteStragglerNumber(invNum);
-          // Skip attaching for this render; the reload/re-render will catch it
-          continue;
-        }
-        attachSendButton(el, invNum);
-        attachStatusBadge(el, invNum);
+    if (!isOnInvoiceListView()) return;
+    // Only look at spans with monospace style (rows have these for #NNN nummer)
+    var spans = document.querySelectorAll('span[style*="monospace"]');
+    for (var i = 0; i < spans.length; i++) {
+      var span = spans[i];
+      var txt = (span.textContent || '').trim();
+      if (txt.charAt(0) !== '#') continue;
+      if (!/^#[\d-]+$/.test(txt)) continue;
+      // Walk up to find the row container (the grid row with onClick handlers)
+      var row = span.parentElement;
+      var depth = 0;
+      while (row && depth < 4) {
+        var st = row.getAttribute('style') || '';
+        if (st.indexOf('grid') !== -1 && st.indexOf('borderBottom') !== -1) break;
+        if (st.indexOf('display: grid') !== -1) break;
+        row = row.parentElement;
+        depth++;
       }
+      if (!row || row.__inv_processed) continue;
+      row.__inv_processed = true;
+
+      var invNum = txt.replace(/^#/, '').trim();
+      if (!parseNummer(invNum)) {
+        rewriteStragglerNumber(invNum);
+        continue;
+      }
+      attachSendButton(row, invNum);
+      attachStatusBadge(row, invNum);
     }
   }
 
@@ -2417,8 +2445,29 @@ react-dom/cjs/react-dom-client.production.js:
     migrateNumbers();
     interceptInvoiceSave();
 
-    // Periodically scan for invoice list rows (handles React re-renders)
-    setInterval(injectListButtons, 800);
+    // Use MutationObserver instead of polling — only scan when DOM actually changes,
+    // and debounce so rapid React re-renders don't trigger 100 scans.
+    var pending = null;
+    function scheduleScan() {
+      if (pending) return;
+      pending = setTimeout(function () {
+        pending = null;
+        try {
+          injectListButtons();
+        } catch (e) {
+          LOG('scan error', e);
+        }
+      }, 250);
+    }
+    try {
+      var obs = new MutationObserver(scheduleScan);
+      obs.observe(document.body, { childList: true, subtree: true });
+    } catch (e) {
+      LOG('observer setup failed, fallback to polling', e);
+      setInterval(scheduleScan, 1500);
+    }
+    // Also do an initial scan after init
+    setTimeout(scheduleScan, 500);
 
     LOG('init complete. Next invoice #:', getNextNumber());
   }
