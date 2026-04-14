@@ -633,6 +633,7 @@ react-dom/cjs/react-dom-client.production.js:
 
 
 
+
 <script id="mv-new-pdf-module">
 /* Mietvertrag PDF — eigenständiger Tab, unabhängig von Ar() */
 (function () {
@@ -1033,6 +1034,7 @@ react-dom/cjs/react-dom-client.production.js:
       section('Kündigungsbestimmungen', [
         radioGroup('kuendfrist', 'Kündigungsfrist', [
           ['drei_monate', 'Drei Monate', true],
+          ['ein_monat', 'Ein Monat', false],
           ['anders', 'Anders (Text unten)', false]
         ]),
         field('kuendfristAndere', 'Andere Kündigungsfrist (optional)', ''),
@@ -1047,7 +1049,7 @@ react-dom/cjs/react-dom-client.production.js:
       section('Mietzins', [
         row2(
           field('nettomiete', 'Netto-Mietzins CHF/Mt.', ''),
-          field('kaution', 'Kaution CHF (3× Miete)', '')
+          field('kaution', 'Kaution CHF (1× Monatsmiete)', '')
         ),
         row2(
           field('nkHeiz', 'NK Heizung/Warmwasser CHF', ''),
@@ -1271,21 +1273,40 @@ react-dom/cjs/react-dom-client.production.js:
     set('mv-mieterTel', t.phone || '');
     set('mv-mieterEmail', t.email || '');
     set('mv-unitName', t.unit || t.einheitName || '');
-    var netto =
-      t.nettomiete != null
-        ? t.nettomiete
-        : t.rent != null
-        ? Number(t.rent) - Number(t.nebenkosten || 0)
-        : 0;
+
+    // Business rules (Marian):
+    // - Wohnung total 1200 → Netto 1150, NK Heiz 25, NK Wasser 25
+    // - Wohnung total 900  → Netto 850,  NK Heiz 25, NK Wasser 25
+    // - Andere Beträge: Netto = rent - 50, NK je 25
+    // - Kaution = 1 × Monatsmiete (brutto)
+    // Alle Werte manuell überschreibbar.
+    var total = Number(t.rent) || 0;
+    var netto, nkH, nkW;
+    if (total === 1200) {
+      netto = 1150;
+      nkH = 25;
+      nkW = 25;
+    } else if (total === 900) {
+      netto = 850;
+      nkH = 25;
+      nkW = 25;
+    } else if (total > 50) {
+      // Generelle Regel: 25 + 25 NK, Rest Netto
+      nkH = 25;
+      nkW = 25;
+      netto = total - 50;
+    } else {
+      netto = 0;
+      nkH = 0;
+      nkW = 0;
+    }
     set('mv-nettomiete', netto);
-    var nk = Number(t.nebenkosten || 0);
-    var nkH = nk > 0 ? Math.round(nk / 2) : 0;
     set('mv-nkHeiz', nkH);
-    set('mv-nkWasser', nk > 0 ? nk - nkH : 0);
-    var kaut = Math.round(
-      (Number(t.rent) || Number(t.nettomiete) || netto || 0) * 3
-    );
+    set('mv-nkWasser', nkW);
+    // Kaution = 1 × Monatsmiete (brutto)
+    var kaut = total > 0 ? total : netto + nkH + nkW;
     set('mv-kaution', kaut);
+
     if (t.startDate) {
       // startDate might be YYYY-MM-DD (supabase) or DD.MM.YYYY
       var iso = t.startDate;
