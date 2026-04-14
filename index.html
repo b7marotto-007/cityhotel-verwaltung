@@ -636,6 +636,7 @@ react-dom/cjs/react-dom-client.production.js:
 
 
 
+
 <script id="mv-new-pdf-module">
 /* Mietvertrag PDF — eigenständiger Tab, unabhängig von Ar() */
 (function () {
@@ -3264,6 +3265,715 @@ react-dom/cjs/react-dom-client.production.js:
     document.addEventListener('DOMContentLoaded', function () {
       setTimeout(init, 500);
     });
+  } else {
+    setTimeout(init, 500);
+  }
+})();
+
+</script>
+<script id="quittung-module">
+/* Mietzinsquittung-Modul — City Hotel App */
+(function () {
+  'use strict';
+  var LOG = function () {
+    try { console.log.apply(console, ['[quittung]'].concat([].slice.call(arguments))); } catch (e) {}
+  };
+  LOG('module loaded');
+
+  var COL_RED = '#C0392B';
+  var COL_DARK = '#0C0F1A';
+  var COL_GRAY = '#8B8A86';
+  var COL_BORDER = '#E8E5DE';
+  var COL_BG = '#F6F5F1';
+  var MONATE = [
+    'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
+    'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'
+  ];
+
+  // === Data ===
+  function loadCache(key) {
+    try { var v = localStorage.getItem('cache_' + key); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+  }
+  function loadTenants() { return loadCache('pm_tenants') || []; }
+  function loadPayments() { return loadCache('pm_payments') || []; }
+  function loadInvoices() { return loadCache('pm_invoices') || []; }
+  function loadFirma() {
+    try {
+      var s = localStorage.getItem('pm_firma_v2') || localStorage.getItem('pm_firma');
+      return s ? JSON.parse(s) : {};
+    } catch (e) { return {}; }
+  }
+
+  function supaCfg() {
+    try { return JSON.parse(localStorage.getItem('_supa_cfg') || 'null'); } catch (e) { return null; }
+  }
+  function supaPush(key, value) {
+    var c = supaCfg();
+    if (!c) return Promise.resolve(false);
+    return fetch(c.url + '/rest/v1/pm_kv', {
+      method: 'POST',
+      headers: {
+        apikey: c.key, Authorization: 'Bearer ' + c.key,
+        'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates'
+      },
+      body: JSON.stringify({ key: key, value: value, updated_at: new Date().toISOString() })
+    }).then(function (r) { return r.ok; }).catch(function () { return false; });
+  }
+
+  function loadQuittungen() { return loadCache('pm_quittungen') || []; }
+  function saveQuittungen(arr) {
+    var json = JSON.stringify(arr);
+    localStorage.setItem('cache_pm_quittungen', json);
+    supaPush('pm_quittungen', json);
+  }
+
+  // === Helpers ===
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function fmt(n) {
+    return Number(n || 0).toLocaleString('de-CH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function genId() {
+    return 'q_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+  }
+  function heute() {
+    var d = new Date();
+    return String(d.getDate()).padStart(2, '0') + '.' +
+      String(d.getMonth() + 1).padStart(2, '0') + '.' + d.getFullYear();
+  }
+  function numInWorten(n) {
+    // Simple spelling for CHF integer amounts
+    n = Math.round(Number(n) || 0);
+    if (n === 0) return 'null';
+    var ones = ['', 'ein', 'zwei', 'drei', 'vier', 'fünf', 'sechs', 'sieben', 'acht', 'neun'];
+    var teens = ['zehn', 'elf', 'zwölf', 'dreizehn', 'vierzehn', 'fünfzehn', 'sechzehn', 'siebzehn', 'achtzehn', 'neunzehn'];
+    var tens = ['', '', 'zwanzig', 'dreißig', 'vierzig', 'fünfzig', 'sechzig', 'siebzig', 'achtzig', 'neunzig'];
+    function below1k(x) {
+      var r = '';
+      if (x >= 100) {
+        r += (x === 100 ? 'ein' : ones[Math.floor(x / 100)]) + 'hundert';
+        x = x % 100;
+      }
+      if (x >= 20) {
+        if (x % 10) r += ones[x % 10] + 'und' + tens[Math.floor(x / 10)];
+        else r += tens[Math.floor(x / 10)];
+      } else if (x >= 10) r += teens[x - 10];
+      else if (x > 0) r += (x === 1 ? 'eins' : ones[x]);
+      return r;
+    }
+    var out = '';
+    if (n >= 1000000) {
+      var m = Math.floor(n / 1000000);
+      out += (m === 1 ? 'einemillion' : below1k(m) + 'millionen');
+      n = n % 1000000;
+    }
+    if (n >= 1000) {
+      var th = Math.floor(n / 1000);
+      out += (th === 1 ? 'eintausend' : below1k(th) + 'tausend');
+      n = n % 1000;
+    }
+    if (n > 0) out += below1k(n);
+    return out.charAt(0).toUpperCase() + out.slice(1);
+  }
+
+  // === Payment check ===
+  // Returns { paid: boolean, amount: number, paidAmount: number, status: 'paid'|'partial'|'open' }
+  function checkMonatBezahlt(tenantId, monthIdx, year) {
+    var payments = loadPayments();
+    var relevant = payments.filter(function (p) {
+      return p.tenantId === tenantId && Number(p.month) === Number(monthIdx) && Number(p.year) === Number(year) && p.paid;
+    });
+    var paidAmount = relevant.reduce(function (s, p) { return s + Number(p.amount || 0); }, 0);
+    var tenants = loadTenants();
+    var t = tenants.filter(function (x) { return x.id === tenantId; })[0] || {};
+    var expected = Number(t.rent || 0);
+    return {
+      paid: paidAmount >= expected && expected > 0,
+      partial: paidAmount > 0 && paidAmount < expected,
+      expected: expected,
+      paidAmount: paidAmount,
+      status: paidAmount === 0 ? 'open' : (paidAmount < expected ? 'partial' : 'paid')
+    };
+  }
+
+  // === Modal UI ===
+  var currentState = null;
+
+  function openModal() {
+    if (document.getElementById('quittung-modal')) return;
+    var tenants = loadTenants();
+
+    currentState = {
+      id: null,
+      tenantId: tenants[0] ? tenants[0].id : null,
+      months: [], // [{month, year}]
+      status: 'entwurf',
+      created: null,
+      sentHistory: []
+    };
+
+    var overlay = document.createElement('div');
+    overlay.id = 'quittung-modal';
+    overlay.style.cssText =
+      'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99995;' +
+      'display:flex;align-items:center;justify-content:center;padding:20px;' +
+      'font-family:"DM Sans",system-ui,sans-serif;';
+
+    overlay.innerHTML = buildModalHTML(tenants);
+    document.body.appendChild(overlay);
+    wireModal(tenants);
+  }
+
+  function closeModal() {
+    var m = document.getElementById('quittung-modal');
+    if (m) m.remove();
+    currentState = null;
+  }
+
+  function buildModalHTML(tenants) {
+    var tenantOpts = '<option value="">— Mieter wählen —</option>';
+    tenants.forEach(function (t) {
+      var name = t.nameRaw || (t.vorname || '') + ' ' + (t.nachname || '');
+      var unit = t.unit || t.einheitName || '—';
+      tenantOpts += '<option value="' + esc(t.id) + '">' + esc(unit + ' — ' + name) + '</option>';
+    });
+
+    // Last 12 months checkboxes
+    var now = new Date();
+    var monthsHTML = '';
+    for (var i = 0; i < 12; i++) {
+      var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      var mIdx = d.getMonth();
+      var y = d.getFullYear();
+      monthsHTML +=
+        '<label class="qm-month" data-m="' + mIdx + '" data-y="' + y + '" ' +
+        'style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid ' + COL_BORDER +
+        ';border-radius:8px;cursor:pointer;font-size:13px;background:#fff;">' +
+        '<input type="checkbox" class="qm-month-cb" data-m="' + mIdx + '" data-y="' + y + '" style="cursor:pointer;width:16px;height:16px;"/>' +
+        '<span style="flex:1;">' + esc(MONATE[mIdx] + ' ' + y) + '</span>' +
+        '<span class="qm-status" style="font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600;"></span>' +
+        '</label>';
+    }
+
+    return (
+      '<div style="background:#fff;border-radius:16px;max-width:680px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3);">' +
+      '<div style="padding:22px 26px;border-bottom:1px solid ' + COL_BORDER + ';display:flex;justify-content:space-between;align-items:center;">' +
+      '<div>' +
+      '<div style="font-size:18px;font-weight:700;color:' + COL_DARK + ';letter-spacing:-0.02em;">📃 Mietzinsquittung erstellen</div>' +
+      '<div style="font-size:12px;color:' + COL_GRAY + ';margin-top:3px;">Zahlungsbestätigung für einen oder mehrere Monate</div>' +
+      '</div>' +
+      '<button id="qm-close" style="width:32px;height:32px;border-radius:50%;border:1px solid ' + COL_BORDER + ';background:#fff;font-size:20px;cursor:pointer;color:' + COL_GRAY + ';">×</button>' +
+      '</div>' +
+      '<div style="padding:22px 26px;">' +
+
+      // Tenant select
+      '<label style="display:block;font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:' + COL_GRAY + ';margin-bottom:6px;">Mieter</label>' +
+      '<select id="qm-tenant" style="width:100%;padding:10px 12px;border:1.5px solid ' + COL_BORDER + ';border-radius:8px;font-size:14px;font-family:inherit;background:#fff;outline:none;margin-bottom:18px;">' +
+      tenantOpts + '</select>' +
+
+      // Months list
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
+      '<label style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:' + COL_GRAY + ';">Monate auswählen (mehrere möglich)</label>' +
+      '<div style="display:flex;gap:6px;">' +
+      '<button id="qm-select-all-paid" style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid ' + COL_BORDER + ';background:#fff;cursor:pointer;">✓ Nur bezahlte</button>' +
+      '<button id="qm-clear" style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid ' + COL_BORDER + ';background:#fff;cursor:pointer;">Zurücksetzen</button>' +
+      '</div>' +
+      '</div>' +
+      '<div id="qm-months" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;max-height:320px;overflow-y:auto;margin-bottom:18px;">' +
+      monthsHTML +
+      '</div>' +
+
+      // Summary
+      '<div id="qm-summary" style="background:' + COL_BG + ';border-radius:10px;padding:12px 16px;margin-bottom:18px;font-size:13px;color:' + COL_DARK + ';">' +
+      'Noch keine Monate gewählt.' +
+      '</div>' +
+
+      // Warning (hidden by default)
+      '<div id="qm-warning" style="display:none;background:#FEF3C7;border:1px solid #FCD34D;border-radius:10px;padding:12px 16px;margin-bottom:18px;font-size:12px;color:#92400E;"></div>' +
+
+      // Actions
+      '<div style="display:flex;gap:10px;justify-content:flex-end;padding-top:10px;border-top:1px solid ' + COL_BORDER + ';">' +
+      '<button id="qm-cancel" style="padding:10px 18px;border-radius:8px;border:1px solid ' + COL_BORDER + ';background:#fff;cursor:pointer;font-size:13px;font-weight:500;">Abbrechen</button>' +
+      '<button id="qm-print" style="padding:10px 18px;border-radius:8px;border:1px solid ' + COL_BORDER + ';background:#fff;cursor:pointer;font-size:13px;font-weight:600;color:' + COL_DARK + ';">🖨 Drucken / PDF</button>' +
+      '<button id="qm-save-send" style="padding:10px 18px;border-radius:8px;border:none;background:' + COL_RED + ';color:#fff;cursor:pointer;font-size:13px;font-weight:600;box-shadow:0 2px 10px rgba(192,57,43,0.30);">💾 Speichern & Senden</button>' +
+      '</div>' +
+
+      '</div></div>'
+    );
+  }
+
+  function wireModal(tenants) {
+    var modal = document.getElementById('quittung-modal');
+    document.getElementById('qm-close').addEventListener('click', closeModal);
+    document.getElementById('qm-cancel').addEventListener('click', closeModal);
+    modal.addEventListener('click', function (e) { if (e.target === modal) closeModal(); });
+
+    var tenantSel = document.getElementById('qm-tenant');
+    if (currentState.tenantId) tenantSel.value = currentState.tenantId;
+    tenantSel.addEventListener('change', function () {
+      currentState.tenantId = tenantSel.value;
+      refreshMonthStatuses();
+      updateSummary();
+    });
+
+    // Month checkboxes
+    var cbs = modal.querySelectorAll('.qm-month-cb');
+    cbs.forEach(function (cb) {
+      cb.addEventListener('change', function () {
+        var m = parseInt(cb.getAttribute('data-m'));
+        var y = parseInt(cb.getAttribute('data-y'));
+        if (cb.checked) {
+          currentState.months.push({ month: m, year: y });
+        } else {
+          currentState.months = currentState.months.filter(function (x) { return !(x.month === m && x.year === y); });
+        }
+        updateSummary();
+      });
+    });
+
+    document.getElementById('qm-select-all-paid').addEventListener('click', function () {
+      if (!currentState.tenantId) return;
+      currentState.months = [];
+      cbs.forEach(function (cb) {
+        var m = parseInt(cb.getAttribute('data-m'));
+        var y = parseInt(cb.getAttribute('data-y'));
+        var chk = checkMonatBezahlt(currentState.tenantId, m, y);
+        cb.checked = chk.status === 'paid';
+        if (cb.checked) currentState.months.push({ month: m, year: y });
+      });
+      updateSummary();
+    });
+
+    document.getElementById('qm-clear').addEventListener('click', function () {
+      currentState.months = [];
+      cbs.forEach(function (cb) { cb.checked = false; });
+      updateSummary();
+    });
+
+    document.getElementById('qm-print').addEventListener('click', function () {
+      if (!validateBeforeAction()) return;
+      saveQuittung('entwurf');
+      doPrint();
+    });
+
+    document.getElementById('qm-save-send').addEventListener('click', function () {
+      if (!validateBeforeAction()) return;
+      saveQuittung('gesendet');
+      openSendDialog();
+    });
+
+    // Initial
+    if (currentState.tenantId) {
+      refreshMonthStatuses();
+    }
+    updateSummary();
+  }
+
+  function refreshMonthStatuses() {
+    if (!currentState.tenantId) return;
+    var labels = document.querySelectorAll('#qm-months .qm-month');
+    labels.forEach(function (lbl) {
+      var m = parseInt(lbl.getAttribute('data-m'));
+      var y = parseInt(lbl.getAttribute('data-y'));
+      var chk = checkMonatBezahlt(currentState.tenantId, m, y);
+      var status = lbl.querySelector('.qm-status');
+      if (chk.status === 'paid') {
+        status.textContent = '✓ bezahlt';
+        status.style.background = '#DCFCE7';
+        status.style.color = '#166534';
+      } else if (chk.status === 'partial') {
+        status.textContent = '⚠ teilweise';
+        status.style.background = '#FEF3C7';
+        status.style.color = '#92400E';
+      } else {
+        status.textContent = '○ offen';
+        status.style.background = '#FEE2E2';
+        status.style.color = '#991B1B';
+      }
+    });
+  }
+
+  function updateSummary() {
+    var sum = document.getElementById('qm-summary');
+    var warn = document.getElementById('qm-warning');
+    if (!currentState.tenantId) {
+      sum.textContent = 'Bitte Mieter wählen.';
+      warn.style.display = 'none';
+      return;
+    }
+    if (!currentState.months.length) {
+      sum.textContent = 'Noch keine Monate gewählt.';
+      warn.style.display = 'none';
+      return;
+    }
+    var tenants = loadTenants();
+    var t = tenants.filter(function (x) { return x.id === currentState.tenantId; })[0] || {};
+    var rent = Number(t.rent || 0);
+    var total = rent * currentState.months.length;
+
+    // Sort months chronologically
+    currentState.months.sort(function (a, b) {
+      return a.year !== b.year ? a.year - b.year : a.month - b.month;
+    });
+    var monthsText = currentState.months.map(function (m) { return MONATE[m.month] + ' ' + m.year; }).join(', ');
+
+    sum.innerHTML =
+      '<div style="font-weight:600;margin-bottom:4px;">' + esc(monthsText) + '</div>' +
+      '<div style="color:' + COL_GRAY + ';font-size:12px;">' +
+      currentState.months.length + ' Monat' + (currentState.months.length > 1 ? 'e' : '') +
+      ' · CHF ' + fmt(total) + ' gesamt</div>';
+
+    // Check for unpaid
+    var unpaid = currentState.months.filter(function (m) {
+      var chk = checkMonatBezahlt(currentState.tenantId, m.month, m.year);
+      return chk.status !== 'paid';
+    });
+    if (unpaid.length) {
+      var unpaidText = unpaid.map(function (m) { return MONATE[m.month] + ' ' + m.year; }).join(', ');
+      warn.innerHTML = '⚠️ <strong>Achtung:</strong> Folgende Monate sind nicht vollständig bezahlt: ' + esc(unpaidText) + '. Quittung kann trotzdem erstellt werden.';
+      warn.style.display = 'block';
+    } else {
+      warn.style.display = 'none';
+    }
+  }
+
+  function validateBeforeAction() {
+    if (!currentState.tenantId) {
+      alert('Bitte Mieter wählen.');
+      return false;
+    }
+    if (!currentState.months.length) {
+      alert('Bitte mindestens einen Monat wählen.');
+      return false;
+    }
+    return true;
+  }
+
+  function saveQuittung(status) {
+    if (!currentState.id) {
+      currentState.id = genId();
+      currentState.created = new Date().toISOString();
+    }
+    currentState.status = status;
+    var tenants = loadTenants();
+    var t = tenants.filter(function (x) { return x.id === currentState.tenantId; })[0] || {};
+    var rent = Number(t.rent || 0);
+    var rec = {
+      id: currentState.id,
+      tenantId: currentState.tenantId,
+      status: status,
+      created: currentState.created,
+      updated: new Date().toISOString(),
+      months: currentState.months,
+      rent: rent,
+      total: rent * currentState.months.length,
+      sentHistory: currentState.sentHistory || [],
+      mieterName: t.nameRaw || (t.vorname + ' ' + t.nachname),
+      unit: t.unit || ''
+    };
+    var all = loadQuittungen();
+    var idx = -1;
+    for (var i = 0; i < all.length; i++) if (all[i].id === rec.id) { idx = i; break; }
+    if (idx >= 0) all[idx] = rec; else all.push(rec);
+    saveQuittungen(all);
+    LOG('saved quittung', rec.id, status);
+    return rec;
+  }
+
+  // === Print / PDF ===
+  function doPrint() {
+    var tenants = loadTenants();
+    var t = tenants.filter(function (x) { return x.id === currentState.tenantId; })[0] || {};
+    var firma = loadFirma();
+    var rent = Number(t.rent || 0);
+    var monthsList = currentState.months.slice().sort(function (a, b) {
+      return a.year !== b.year ? a.year - b.year : a.month - b.month;
+    });
+    var total = rent * monthsList.length;
+    var monthsText = monthsList.map(function (m) { return MONATE[m.month] + ' ' + m.year; }).join(', ');
+
+    var html = buildPrintHTML({
+      firma: firma,
+      tenant: t,
+      monthsText: monthsText,
+      monthsList: monthsList,
+      rent: rent,
+      total: total,
+      nummer: (currentState.id || '').slice(-8).toUpperCase()
+    });
+
+    var win = window.open('', '_blank');
+    if (!win) { alert('Popup blockiert — bitte Popups erlauben.'); return; }
+    win.document.write(html);
+    win.document.close();
+    setTimeout(function () { try { win.focus(); win.print(); } catch (e) {} }, 500);
+  }
+
+  function buildPrintHTML(d) {
+    var f = d.firma;
+    var rows = d.monthsList.map(function (m) {
+      return '<tr>' +
+        '<td style="padding:8px 10px;border-bottom:1px solid #e5e5e5;">' + esc(MONATE[m.month] + ' ' + m.year) + '</td>' +
+        '<td style="padding:8px 10px;border-bottom:1px solid #e5e5e5;text-align:right;">CHF ' + fmt(d.rent) + '</td>' +
+        '</tr>';
+    }).join('');
+
+    return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><title>Mietzinsquittung</title>' +
+      '<style>' +
+      '@page{size:A4;margin:0}' +
+      '*{box-sizing:border-box;margin:0;padding:0}' +
+      'html,body{width:210mm;background:#fff;font-family:"Helvetica Neue",Arial,sans-serif;font-size:10.5pt;color:#1a1a1a;line-height:1.6}' +
+      '.sidebar{position:fixed;left:0;top:0;bottom:0;width:9px;background:#C0392B;z-index:100}' +
+      '.bottom-bar{position:fixed;bottom:0;left:0;right:0;height:11px;background:#C0392B;z-index:100}' +
+      '.page{margin-left:18px;padding:6mm 18mm 20mm 14mm;min-height:287mm}' +
+      '.header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:4mm;width:100%}' +
+      '.contact-info{font-size:8pt;color:#333;line-height:1.9}' +
+      '.recipient{margin:14mm 0 8mm 55%;font-size:10.5pt;line-height:1.7}' +
+      '.subject{font-size:13pt;font-weight:700;margin:8mm 0 6mm;color:#C0392B}' +
+      '.meta{margin-bottom:6mm;font-size:10pt;color:#333}' +
+      '.meta span{display:inline-block;min-width:38mm;font-weight:600;color:#1a1a1a}' +
+      'p{margin-bottom:4mm;line-height:1.7}' +
+      'table{width:100%;border-collapse:collapse;margin:4mm 0 8mm;font-size:10.5pt}' +
+      'th{text-align:left;padding:8px 10px;border-bottom:2px solid #1a1a1a;font-weight:700;font-size:9.5pt;text-transform:uppercase;letter-spacing:0.06em}' +
+      '.total-row{border-top:2px solid #1a1a1a;font-weight:700}' +
+      '.total-row td{padding:10px;font-size:12pt}' +
+      '.in-worten{font-style:italic;color:#666;margin-bottom:6mm}' +
+      '.sig{margin-top:18mm;display:flex;justify-content:space-between;gap:14mm}' +
+      '.sig-col{flex:1;border-top:1px solid #1a1a1a;padding-top:3mm;font-size:9.5pt}' +
+      '@media print{.sidebar,.bottom-bar{display:block!important}html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}' +
+      '</style></head><body>' +
+      '<div class="sidebar"></div><div class="bottom-bar"></div>' +
+      '<div class="page">' +
+
+      // Header
+      '<div class="header">' +
+      '<div style="display:flex;align-items:center;gap:0;">' +
+      '<div style="background:#C0392B;width:45px;align-self:stretch;display:flex;flex-direction:column;justify-content:center;gap:7px;padding:0 6px;margin-right:12px;flex-shrink:0;">' +
+      '<div style="width:34px;height:3px;background:#fff;"></div>' +
+      '<div style="width:34px;height:3px;background:#fff;"></div>' +
+      '<div style="width:34px;height:3px;background:#fff;"></div>' +
+      '<div style="width:34px;height:3px;background:#fff;"></div>' +
+      '</div>' +
+      '<div class="contact-info">' +
+      '<div>T: ' + esc(f.firmaPhone || '') + '</div>' +
+      '<div>Mail: ' + esc(f.firmaMail || '') + '</div>' +
+      '<div>' + esc(f.firmaWeb || '') + '</div>' +
+      '<div style="white-space:nowrap">' + esc(f.firmaAdresse || '') + ' | ' + esc(f.firmaPlz || '') + ' ' + esc(f.firmaStadt || '') + '</div>' +
+      '</div>' +
+      '</div>' +
+      '<div style="font-family:\'Helvetica Neue\',sans-serif;font-weight:800;font-size:22pt;color:#1a1a1a;letter-spacing:-0.02em;">' +
+      esc(f.firmaName || 'City Apartments GmbH') + '</div>' +
+      '</div>' +
+
+      // Recipient
+      '<div class="recipient">' +
+      '<div style="font-weight:500">' + esc(d.tenant.nameRaw || (d.tenant.vorname + ' ' + d.tenant.nachname)) + '</div>' +
+      '<div>' + esc(d.tenant.address || '') + '</div>' +
+      '</div>' +
+
+      // Meta
+      '<div class="meta" style="margin-top:6mm">' +
+      '<div><span>Quittungs-Nr.:</span>' + esc(d.nummer || '—') + '</div>' +
+      '<div><span>Datum:</span>' + esc(heute()) + '</div>' +
+      '<div><span>Mietobjekt:</span>' + esc(d.tenant.unit || '') + (d.tenant.address ? ', ' + esc(d.tenant.address) : '') + '</div>' +
+      '</div>' +
+
+      // Title
+      '<div class="subject">MIETZINSQUITTUNG</div>' +
+
+      // Body
+      '<p>Hiermit wird bestätigt, dass <strong>' + esc(d.tenant.nameRaw || (d.tenant.vorname + ' ' + d.tenant.nachname)) + '</strong> ' +
+      'den Mietzins (inkl. Nebenkosten) für das Mietobjekt an der Adresse <strong>' +
+      esc((d.tenant.address || '') + (d.tenant.unit ? ', ' + d.tenant.unit : '')) +
+      '</strong> für folgenden Zeitraum vollständig bezahlt hat:</p>' +
+
+      '<table>' +
+      '<thead><tr><th>Monat</th><th style="text-align:right;">Betrag</th></tr></thead>' +
+      '<tbody>' + rows +
+      '<tr class="total-row"><td>Gesamtbetrag (' + d.monthsList.length + ' Monat' + (d.monthsList.length > 1 ? 'e' : '') + ')</td><td style="text-align:right;">CHF ' + fmt(d.total) + '</td></tr>' +
+      '</tbody></table>' +
+
+      '<div class="in-worten">In Worten: ' + esc(numInWorten(d.total)) + ' Franken</div>' +
+
+      '<p>Die Zahlungen wurden ordnungsgemäß auf das Konto des Vermieters überwiesen bzw. in bar entgegengenommen. ' +
+      'Es bestehen keine weiteren Forderungen für die oben genannten Monate.</p>' +
+
+      '<p style="margin-top:10mm">Diese Quittung wurde maschinell erstellt und ist ohne Unterschrift gültig.</p>' +
+
+      // Signature
+      '<div class="sig">' +
+      '<div class="sig-col">Ort, Datum<br/><span style="font-weight:500">' + esc((f.firmaStadt || '') + ', ' + heute()) + '</span></div>' +
+      '<div class="sig-col">' + esc(f.firmaName || 'City Apartments GmbH') + '<br/><span style="color:#666">Vermieter</span></div>' +
+      '</div>' +
+
+      '</div>' +
+      '<scr' + 'ipt>window.onload=function(){setTimeout(function(){window.print()},400)}</scr' + 'ipt>' +
+      '</body></html>';
+  }
+
+  // === Send Dialog ===
+  function openSendDialog() {
+    if (document.getElementById('qm-send-modal')) return;
+    var tenants = loadTenants();
+    var t = tenants.filter(function (x) { return x.id === currentState.tenantId; })[0] || {};
+    var rawPhone = (t.phone || '').toString();
+    var phoneMatch = rawPhone.match(/[\+]?[\d][\d\s]{6,}/);
+    var phone = phoneMatch ? phoneMatch[0].trim() : '';
+    var email = t.email || '';
+
+    var monthsText = currentState.months.map(function (m) { return MONATE[m.month] + ' ' + m.year; }).join(', ');
+
+    var overlay = document.createElement('div');
+    overlay.id = 'qm-send-modal';
+    overlay.style.cssText =
+      'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99996;' +
+      'display:flex;align-items:center;justify-content:center;padding:20px;';
+
+    overlay.innerHTML =
+      '<div style="background:#fff;border-radius:16px;max-width:480px;width:100%;">' +
+      '<div style="padding:20px 24px;border-bottom:1px solid ' + COL_BORDER + ';display:flex;justify-content:space-between;align-items:center;">' +
+      '<div style="font-size:16px;font-weight:700;">📤 Quittung senden</div>' +
+      '<button id="qm-send-close" style="width:28px;height:28px;border-radius:50%;border:1px solid ' + COL_BORDER + ';background:#fff;font-size:16px;cursor:pointer;">×</button>' +
+      '</div>' +
+      '<div style="padding:18px 24px;">' +
+      '<p style="font-size:12px;color:' + COL_GRAY + ';margin-bottom:14px;">Drucke zuerst das PDF, dann WhatsApp/Email öffnen und Datei manuell anhängen.</p>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">' +
+      '<button id="qm-wa" style="padding:11px;border-radius:8px;border:1px solid #25D366;background:#25D366;color:#fff;font-size:13px;font-weight:600;cursor:' + (phone ? 'pointer' : 'not-allowed') + ';opacity:' + (phone ? '1' : '0.4') + ';">💬 WhatsApp</button>' +
+      '<button id="qm-mail" style="padding:11px;border-radius:8px;border:1px solid #2563EB;background:#2563EB;color:#fff;font-size:13px;font-weight:600;cursor:' + (email ? 'pointer' : 'not-allowed') + ';opacity:' + (email ? '1' : '0.4') + ';">✉ E-Mail</button>' +
+      '</div>' +
+      '<button id="qm-only-mark" style="width:100%;padding:9px;border-radius:8px;border:1px solid ' + COL_BORDER + ';background:#fff;cursor:pointer;font-size:12px;">Nur als gesendet markieren</button>' +
+      '</div></div>';
+
+    document.body.appendChild(overlay);
+
+    document.getElementById('qm-send-close').addEventListener('click', function () { overlay.remove(); closeModal(); });
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) { overlay.remove(); closeModal(); } });
+
+    function markSent(kanal, empf) {
+      currentState.sentHistory = currentState.sentHistory || [];
+      currentState.sentHistory.push({ kanal: kanal, empfaenger: empf, datum: new Date().toISOString() });
+      saveQuittung('gesendet');
+      overlay.remove();
+      closeModal();
+      toast('✓ Quittung als gesendet markiert');
+    }
+
+    if (phone) {
+      document.getElementById('qm-wa').addEventListener('click', function () {
+        var num = phone.replace(/[^0-9+]/g, '');
+        if (num.startsWith('+')) num = num.slice(1);
+        else if (num.startsWith('00')) num = num.slice(2);
+        else if (num.startsWith('0')) num = '41' + num.slice(1);
+        var text = 'Guten Tag ' + (t.nameRaw || t.vorname) + ',\n\nAnbei Ihre Mietzinsquittung für ' + monthsText + '.\n\nFreundliche Grüsse';
+        window.open('https://wa.me/' + num + '?text=' + encodeURIComponent(text), '_blank');
+        markSent('whatsapp', phone);
+      });
+    }
+    if (email) {
+      document.getElementById('qm-mail').addEventListener('click', function () {
+        var subj = 'Mietzinsquittung — ' + monthsText;
+        var body = 'Guten Tag ' + (t.nameRaw || t.vorname) + ',\n\nAnbei Ihre Mietzinsquittung für ' + monthsText + '.\n\nFreundliche Grüsse';
+        window.location.href = 'mailto:' + email + '?subject=' + encodeURIComponent(subj) + '&body=' + encodeURIComponent(body);
+        markSent('email', email);
+      });
+    }
+    document.getElementById('qm-only-mark').addEventListener('click', function () { markSent('manual', ''); });
+  }
+
+  function toast(text) {
+    var t = document.createElement('div');
+    t.textContent = text;
+    t.style.cssText = 'position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:#166534;color:#fff;padding:10px 20px;border-radius:8px;font-size:13px;z-index:99999;';
+    document.body.appendChild(t);
+    setTimeout(function () { t.remove(); }, 2500);
+  }
+
+  // === Entry point: Inject Sidebar entry ===
+  function ensureSidebarEntry() {
+    if (document.getElementById('quittung-sidebar-item')) return;
+    // Find sidebar — look for "Mietvertrag" or similar existing items
+    var candidates = document.querySelectorAll('a, div, button');
+    var reference = null;
+    for (var i = 0; i < candidates.length; i++) {
+      var el = candidates[i];
+      var txt = (el.textContent || '').trim();
+      if (txt === 'Jahres-Report' || txt === 'Rückstände') {
+        reference = el;
+        break;
+      }
+    }
+    if (!reference) return false;
+
+    // Walk up to find the element that is a direct child of the sidebar list
+    var row = reference;
+    while (row && row.parentElement) {
+      var parent = row.parentElement;
+      var siblings = parent.children;
+      if (siblings.length > 3) {
+        // Check if siblings contain text like "Dashboard", "Mieter" etc.
+        var foundSibs = 0;
+        for (var j = 0; j < siblings.length; j++) {
+          var st = (siblings[j].textContent || '').trim();
+          if (['Dashboard', 'Mieter', 'Heute', 'Zahlungen', 'QR-Rechnung'].indexOf(st) !== -1) foundSibs++;
+        }
+        if (foundSibs >= 2) break;
+      }
+      row = parent;
+    }
+    if (!row || !row.parentElement) return false;
+
+    // Clone reference and insert
+    var clone = row.cloneNode(true);
+    clone.id = 'quittung-sidebar-item';
+    // Replace text and icon
+    var txtNodes = [];
+    (function walk(n) {
+      if (n.nodeType === 3 && n.nodeValue.trim().length > 0) txtNodes.push(n);
+      else if (n.childNodes) for (var k = 0; k < n.childNodes.length; k++) walk(n.childNodes[k]);
+    })(clone);
+    if (txtNodes.length) {
+      txtNodes[0].nodeValue = '📃 Quittungen';
+      for (var x = 1; x < txtNodes.length; x++) txtNodes[x].nodeValue = '';
+    }
+    // Remove badges if any
+    var badges = clone.querySelectorAll('span');
+    badges.forEach(function (b) {
+      var t = (b.textContent || '').trim();
+      if (/^\d+$/.test(t)) b.remove();
+    });
+    // Add click handler (and remove any inherited handlers via clone trick)
+    var freshClone = clone.cloneNode(true);
+    clone.replaceWith(freshClone);
+    clone = freshClone;
+    clone.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      openModal();
+    }, true);
+    row.parentElement.insertBefore(clone, row.nextSibling);
+    LOG('sidebar entry injected');
+    return true;
+  }
+
+  function injectTriggerButton() {
+    window.openQuittungModal = openModal;
+    // Try to inject sidebar entry, retry if not yet rendered
+    var tries = 0;
+    var iv = setInterval(function () {
+      if (ensureSidebarEntry() || ++tries > 20) clearInterval(iv);
+    }, 600);
+  }
+
+  // === Init ===
+  function init() {
+    injectTriggerButton();
+    LOG('ready — call window.openQuittungModal() to open');
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(init, 500); });
   } else {
     setTimeout(init, 500);
   }
