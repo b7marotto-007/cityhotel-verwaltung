@@ -634,6 +634,7 @@ react-dom/cjs/react-dom-client.production.js:
 
 
 
+
 <script id="mv-new-pdf-module">
 /* Mietvertrag PDF — eigenständiger Tab, unabhängig von Ar() */
 (function () {
@@ -1629,6 +1630,10 @@ react-dom/cjs/react-dom-client.production.js:
       kuendRow +=
         '<span class="cb-lbl"><span class="cb">☑</span>drei Monate</span>' +
         '<span class="cb-lbl"><span class="cb">☐</span>anders: _____</span>';
+    } else if (d.kuendfrist === 'ein_monat') {
+      kuendRow +=
+        '<span class="cb-lbl"><span class="cb">☐</span>drei Monate</span>' +
+        '<span class="cb-lbl"><span class="cb">☑</span>anders: <span class="val-inline">1 Monat</span></span>';
     } else {
       kuendRow +=
         '<span class="cb-lbl"><span class="cb">☐</span>drei Monate</span>' +
