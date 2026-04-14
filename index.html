@@ -635,6 +635,7 @@ react-dom/cjs/react-dom-client.production.js:
 
 
 
+
 <script id="mv-new-pdf-module">
 /* Mietvertrag PDF — eigenständiger Tab, unabhängig von Ar() */
 (function () {
@@ -890,6 +891,526 @@ react-dom/cjs/react-dom-client.production.js:
   }
 
   // === Panel (Formular-Overlay) ===
+  // === Current workflow state (per panel session) ===
+  var CURRENT = {
+    id: null, // contract id
+    status: 'entwurf',
+    tenantId: null,
+    created: null,
+    sentHistory: [],
+    signedAt: null,
+    signedPdfFileId: null,
+    signedMethod: null,
+    formData: null,
+    mietbeginn: null
+  };
+
+  function resetCurrent() {
+    CURRENT = {
+      id: null,
+      status: 'entwurf',
+      tenantId: null,
+      created: null,
+      sentHistory: [],
+      signedAt: null,
+      signedPdfFileId: null,
+      signedMethod: null,
+      formData: null,
+      mietbeginn: null
+    };
+  }
+
+  function updateStatusBadge() {
+    var badge = document.getElementById('mv-status-badge');
+    var idEl = document.getElementById('mv-contract-id');
+    if (!badge) return;
+    var labels = {
+      entwurf: { icon: '📝', text: 'Entwurf', bg: '#F3F4F6', color: '#374151' },
+      gesendet: { icon: '📤', text: 'Gesendet', bg: '#FEF3C7', color: '#92400E' },
+      unterzeichnet: { icon: '✅', text: 'Unterzeichnet', bg: '#DCFCE7', color: '#166534' },
+      aktiv: { icon: '🏠', text: 'Aktiv', bg: '#DBEAFE', color: '#1E40AF' }
+    };
+    var l = labels[CURRENT.status] || labels.entwurf;
+    var extra = CURRENT.id ? '' : ' (nicht gespeichert)';
+    badge.textContent = l.icon + ' ' + l.text + extra;
+    badge.style.background = l.bg;
+    badge.style.color = l.color;
+    if (idEl) idEl.textContent = CURRENT.id ? '#' + CURRENT.id.slice(0, 8) : '';
+    // Enable/disable action buttons based on status
+    var saveBtn = document.getElementById('mv-save');
+    var sendBtn = document.getElementById('mv-send');
+    var signBtn = document.getElementById('mv-sign');
+    if (saveBtn) saveBtn.disabled = CURRENT.status === 'aktiv';
+    if (sendBtn) {
+      sendBtn.disabled = !CURRENT.id || CURRENT.status === 'unterzeichnet' || CURRENT.status === 'aktiv';
+      sendBtn.style.opacity = sendBtn.disabled ? '0.4' : '1';
+    }
+    if (signBtn) {
+      signBtn.disabled = !CURRENT.id || CURRENT.status === 'unterzeichnet' || CURRENT.status === 'aktiv';
+      signBtn.style.opacity = signBtn.disabled ? '0.4' : '1';
+    }
+  }
+
+  // === Supabase helpers ===
+  function supaCfg() {
+    try { return JSON.parse(localStorage.getItem('_supa_cfg') || 'null'); } catch (e) { return null; }
+  }
+  function supaPush(key, value) {
+    var c = supaCfg();
+    if (!c) return Promise.resolve(false);
+    return fetch(c.url + '/rest/v1/pm_kv', {
+      method: 'POST',
+      headers: {
+        apikey: c.key,
+        Authorization: 'Bearer ' + c.key,
+        'Content-Type': 'application/json',
+        Prefer: 'resolution=merge-duplicates'
+      },
+      body: JSON.stringify({ key: key, value: value, updated_at: new Date().toISOString() })
+    }).then(function (r) { return r.ok; }).catch(function () { return false; });
+  }
+
+  // === Contract storage ===
+  function loadContracts() {
+    try {
+      var v = localStorage.getItem('cache_pm_contracts');
+      if (!v) return [];
+      var arr = JSON.parse(v);
+      return Array.isArray(arr) ? arr : [];
+    } catch (e) { return []; }
+  }
+  function saveContracts(arr) {
+    var json = JSON.stringify(arr);
+    localStorage.setItem('cache_pm_contracts', json);
+    supaPush('pm_contracts', json);
+  }
+
+  function genId() {
+    return 'mv_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+  }
+
+  function saveCurrentContract(silent) {
+    var data = collectData();
+    if (!CURRENT.tenantId) {
+      var sel = document.getElementById('mv-tenant');
+      if (sel) CURRENT.tenantId = sel.value;
+    }
+    if (!CURRENT.tenantId) {
+      alert('Bitte zuerst einen Mieter wählen.');
+      return null;
+    }
+    if (!CURRENT.id) {
+      CURRENT.id = genId();
+      CURRENT.created = new Date().toISOString();
+    }
+    CURRENT.formData = data;
+    CURRENT.mietbeginn = data.mietbeginn;
+    var rec = {
+      id: CURRENT.id,
+      tenantId: CURRENT.tenantId,
+      status: CURRENT.status,
+      created: CURRENT.created,
+      updated: new Date().toISOString(),
+      sentHistory: CURRENT.sentHistory || [],
+      signedAt: CURRENT.signedAt,
+      signedPdfFileId: CURRENT.signedPdfFileId,
+      signedMethod: CURRENT.signedMethod,
+      formData: data,
+      mietbeginn: data.mietbeginn,
+      mieterName: data.mieterName || ''
+    };
+    var all = loadContracts();
+    var idx = -1;
+    for (var i = 0; i < all.length; i++) if (all[i].id === rec.id) { idx = i; break; }
+    if (idx >= 0) all[idx] = rec; else all.push(rec);
+    saveContracts(all);
+    updateStatusBadge();
+    if (!silent) {
+      var toast = document.createElement('div');
+      toast.textContent = '✓ Vertrag gespeichert';
+      toast.style.cssText = 'position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:#166534;color:#fff;padding:10px 20px;border-radius:8px;font-size:13px;font-family:inherit;box-shadow:0 4px 20px rgba(0,0,0,0.2);z-index:99999;';
+      document.body.appendChild(toast);
+      setTimeout(function () { toast.remove(); }, 2000);
+    }
+    LOG('contract saved', rec.id, 'status:', rec.status);
+    return rec;
+  }
+
+  function loadContractIntoForm(id) {
+    var c = loadContracts().filter(function (x) { return x.id === id; })[0];
+    if (!c) return false;
+    CURRENT = {
+      id: c.id,
+      status: c.status || 'entwurf',
+      tenantId: c.tenantId,
+      created: c.created,
+      sentHistory: c.sentHistory || [],
+      signedAt: c.signedAt,
+      signedPdfFileId: c.signedPdfFileId,
+      signedMethod: c.signedMethod,
+      formData: c.formData,
+      mietbeginn: c.mietbeginn
+    };
+    // Refill form fields
+    var set = function (id, v) {
+      var e = document.getElementById(id);
+      if (e) e.value = v == null ? '' : String(v);
+    };
+    var fd = c.formData || {};
+    Object.keys(fd).forEach(function (k) {
+      var el = document.getElementById('mv-' + k);
+      if (!el) return;
+      if (el.type === 'checkbox') {
+        el.checked = !!fd[k];
+      } else if (el.type === 'radio') {
+        el.checked = el.value === fd[k];
+      } else {
+        el.value = fd[k] == null ? '' : String(fd[k]);
+      }
+    });
+    // Set radio groups by value
+    ['mietdauer_typ', 'kuendfrist', 'kuendtermin', 'kaution_faellig'].forEach(function (group) {
+      if (fd[group]) {
+        var radio = document.querySelector('input[name="mv-' + group + '"][value="' + fd[group] + '"]');
+        if (radio) radio.checked = true;
+      }
+    });
+    // Set tenant dropdown
+    var sel = document.getElementById('mv-tenant');
+    if (sel && c.tenantId) sel.value = c.tenantId;
+    updateStatusBadge();
+    LOG('loaded contract', c.id);
+    return true;
+  }
+
+  // === Send dialog (for contracts) ===
+  function openSendDialogForContract() {
+    if (!CURRENT.tenantId) {
+      alert('Bitte zuerst Mieter wählen und speichern.');
+      return;
+    }
+    if (!CURRENT.id) {
+      var rec = saveCurrentContract(true);
+      if (!rec) return;
+    }
+    var tenants = loadTenants();
+    var tenant = tenants.filter(function (t) { return t.id === CURRENT.tenantId; })[0] || {};
+    var rawPhone = (tenant.phone || '').toString();
+    var phoneMatch = rawPhone.match(/[\+]?[\d][\d\s]{6,}/);
+    var phone = phoneMatch ? phoneMatch[0].trim() : '';
+    var email = tenant.email || '';
+
+    if (document.getElementById('mv-send-modal')) return;
+    var overlay = document.createElement('div');
+    overlay.id = 'mv-send-modal';
+    overlay.style.cssText =
+      'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99995;' +
+      'display:flex;align-items:center;justify-content:center;padding:20px;';
+
+    var histHTML = '';
+    var hist = CURRENT.sentHistory || [];
+    if (!hist.length) {
+      histHTML = '<div style="color:' + COL_GRAY + ';font-size:13px;padding:12px;text-align:center;font-style:italic;">Noch kein Versand</div>';
+    } else {
+      histHTML = hist.slice().reverse().map(function (h) {
+        var icon = h.kanal === 'email' ? '✉' : h.kanal === 'whatsapp' ? '💬' : '📤';
+        var dt = new Date(h.datum);
+        return '<div style="display:flex;gap:10px;padding:9px 12px;border-bottom:1px solid ' +
+          COL_BORDER + ';font-size:12px;"><span style="font-size:16px">' + icon +
+          '</span><div style="flex:1"><div style="font-weight:500;color:' + COL_DARK + ';">' +
+          esc(h.kanal.toUpperCase()) + (h.empfaenger ? ' → ' + esc(h.empfaenger) : '') +
+          '</div><div style="color:' + COL_GRAY + ';font-size:11px">' +
+          dt.toLocaleDateString('de-CH') + ' ' +
+          dt.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' }) +
+          '</div></div></div>';
+      }).join('');
+    }
+
+    overlay.innerHTML =
+      '<div style="background:#fff;border-radius:16px;max-width:560px;width:100%;max-height:90vh;overflow-y:auto;">' +
+      '<div style="padding:22px 26px;border-bottom:1px solid ' + COL_BORDER +
+      ';display:flex;justify-content:space-between;align-items:center;">' +
+      '<div><div style="font-size:18px;font-weight:700;color:' + COL_DARK +
+      ';">📤 Mietvertrag senden</div>' +
+      '<div style="font-size:12px;color:' + COL_GRAY + ';margin-top:2px">An ' +
+      esc(tenant.nameRaw || tenant.vorname + ' ' + tenant.nachname) + '</div></div>' +
+      '<button id="mv-send-close" style="width:32px;height:32px;border-radius:50%;border:1px solid ' +
+      COL_BORDER + ';background:#fff;font-size:18px;cursor:pointer;">×</button>' +
+      '</div>' +
+      '<div style="padding:20px 26px;">' +
+      '<p style="font-size:12px;color:' + COL_GRAY + ';margin:0 0 14px;">' +
+      'Drucke zuerst den Vertrag als PDF und speichere ihn lokal. Dann: WhatsApp/E-Mail öffnen und Datei manuell anhängen. ' +
+      'Der Status wird auf <strong>Gesendet</strong> gesetzt.</p>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;">' +
+      '<button id="mv-send-wa" style="padding:11px;border-radius:8px;border:1px solid #25D366;background:#25D366;color:#fff;font-size:13px;font-weight:600;cursor:' +
+      (phone ? 'pointer' : 'not-allowed') + ';opacity:' + (phone ? '1' : '0.4') +
+      ';">💬 WhatsApp' + (phone ? '<br><span style="font-size:10px;font-weight:400;opacity:0.9">' + esc(phone) + '</span>' : '') + '</button>' +
+      '<button id="mv-send-mail" style="padding:11px;border-radius:8px;border:1px solid #2563EB;background:#2563EB;color:#fff;font-size:13px;font-weight:600;cursor:' +
+      (email ? 'pointer' : 'not-allowed') + ';opacity:' + (email ? '1' : '0.4') +
+      ';">✉ E-Mail' + (email ? '<br><span style="font-size:10px;font-weight:400;opacity:0.9">' + esc(email) + '</span>' : '') + '</button>' +
+      '</div>' +
+      '<button id="mv-mark-sent" style="width:100%;padding:10px;border-radius:8px;border:1px solid ' +
+      COL_BORDER + ';background:#fff;color:' + COL_DARK +
+      ';font-size:12px;font-weight:500;cursor:pointer;margin-bottom:16px;">Nur als gesendet markieren (andere Kanäle)</button>' +
+      '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:' +
+      COL_GRAY + ';margin-bottom:8px;">Versand-Historie</div>' +
+      '<div style="background:#F9F8F4;border-radius:10px;border:1px solid ' + COL_BORDER +
+      ';overflow:hidden;">' + histHTML + '</div>' +
+      '</div></div>';
+
+    document.body.appendChild(overlay);
+
+    document.getElementById('mv-send-close').addEventListener('click', function () { overlay.remove(); });
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
+
+    function mark(kanal, empf) {
+      CURRENT.sentHistory = CURRENT.sentHistory || [];
+      CURRENT.sentHistory.push({ kanal: kanal, empfaenger: empf || '', datum: new Date().toISOString() });
+      if (CURRENT.status === 'entwurf') CURRENT.status = 'gesendet';
+      saveCurrentContract(true);
+      overlay.remove();
+      openSendDialogForContract();
+    }
+
+    if (phone) {
+      document.getElementById('mv-send-wa').addEventListener('click', function () {
+        var num = phone.replace(/[^0-9+]/g, '');
+        if (num.startsWith('+')) num = num.slice(1);
+        else if (num.startsWith('00')) num = num.slice(2);
+        else if (num.startsWith('0')) num = '41' + num.slice(1);
+        var fd = CURRENT.formData || collectData();
+        var text = 'Guten Tag ' + (fd.mieterName || '') +
+          ',\n\nAnbei Ihr Mietvertrag zur Unterschrift.\n\nMietobjekt: ' +
+          (fd.unitName || '') + '\nMietbeginn: ' + (fd.mietbeginn || '') +
+          '\nMonatsmiete brutto: CHF ' + fmt(fd.totalMiete) +
+          '\n\nBitte unterzeichnen und zurücksenden.\n\nFreundliche Grüsse';
+        window.open('https://wa.me/' + num + '?text=' + encodeURIComponent(text), '_blank');
+        mark('whatsapp', phone);
+      });
+    }
+    if (email) {
+      document.getElementById('mv-send-mail').addEventListener('click', function () {
+        var fd = CURRENT.formData || collectData();
+        var subj = 'Mietvertrag — ' + (fd.unitName || '');
+        var body = 'Guten Tag ' + (fd.mieterName || '') +
+          ',\n\nAnbei Ihr Mietvertrag zur Unterschrift.\n\nMietobjekt: ' +
+          (fd.unitName || '') + '\nMietbeginn: ' + (fd.mietbeginn || '') +
+          '\nMonatsmiete brutto: CHF ' + fmt(fd.totalMiete) +
+          '\n\nBitte unterzeichnen und zurücksenden.\n\nFreundliche Grüsse';
+        window.location.href = 'mailto:' + email + '?subject=' + encodeURIComponent(subj) +
+          '&body=' + encodeURIComponent(body);
+        mark('email', email);
+      });
+    }
+    document.getElementById('mv-mark-sent').addEventListener('click', function () {
+      mark('manual', '');
+    });
+  }
+
+  // === Sign dialog ===
+  function openSignDialog() {
+    if (!CURRENT.id) {
+      alert('Bitte zuerst speichern.');
+      return;
+    }
+    if (document.getElementById('mv-sign-modal')) return;
+    var overlay = document.createElement('div');
+    overlay.id = 'mv-sign-modal';
+    overlay.style.cssText =
+      'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99995;' +
+      'display:flex;align-items:center;justify-content:center;padding:20px;';
+
+    overlay.innerHTML =
+      '<div style="background:#fff;border-radius:16px;max-width:520px;width:100%;">' +
+      '<div style="padding:22px 26px;border-bottom:1px solid ' + COL_BORDER +
+      ';display:flex;justify-content:space-between;align-items:center;">' +
+      '<div style="font-size:18px;font-weight:700;color:' + COL_DARK +
+      ';">✅ Als unterzeichnet markieren</div>' +
+      '<button id="mv-sign-close" style="width:32px;height:32px;border-radius:50%;border:1px solid ' +
+      COL_BORDER + ';background:#fff;font-size:18px;cursor:pointer;">×</button>' +
+      '</div>' +
+      '<div style="padding:20px 26px;">' +
+      '<p style="font-size:13px;color:' + COL_DARK + ';margin:0 0 16px;line-height:1.5;">' +
+      'Lade den unterzeichneten Vertrag hoch. Die Datei wird im Mieter-Ordner abgelegt und der Vertragsstatus auf <strong>Unterzeichnet</strong> gesetzt.</p>' +
+      '<div style="display:flex;gap:10px;margin-bottom:16px;">' +
+      '<label style="flex:1;display:flex;align-items:center;gap:7px;padding:10px;border:1px solid ' +
+      COL_BORDER + ';border-radius:8px;cursor:pointer;font-size:13px;">' +
+      '<input type="radio" name="signmethod" value="manual" checked style="cursor:pointer"/>' +
+      '📝 Manuell (Scan/Foto)</label>' +
+      '<label style="flex:1;display:flex;align-items:center;gap:7px;padding:10px;border:1px solid ' +
+      COL_BORDER + ';border-radius:8px;cursor:pointer;font-size:13px;">' +
+      '<input type="radio" name="signmethod" value="digital" style="cursor:pointer"/>' +
+      '💻 Digital signiert</label>' +
+      '</div>' +
+      '<label style="display:block;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:' +
+      COL_GRAY + ';margin-bottom:6px;">Unterzeichneter Vertrag (PDF/Bild)</label>' +
+      '<input type="file" id="mv-sign-file" accept="application/pdf,image/*" style="width:100%;margin-bottom:16px;font-size:13px;"/>' +
+      '<div style="display:flex;gap:10px;justify-content:flex-end;">' +
+      '<button id="mv-sign-cancel" style="padding:10px 18px;border-radius:8px;border:1px solid ' +
+      COL_BORDER + ';background:#fff;cursor:pointer;font-size:13px;font-weight:500;">Abbrechen</button>' +
+      '<button id="mv-sign-confirm" style="padding:10px 18px;border-radius:8px;border:none;background:' +
+      COL_RED + ';color:#fff;cursor:pointer;font-size:13px;font-weight:600;">✅ Bestätigen</button>' +
+      '</div>' +
+      '</div></div>';
+
+    document.body.appendChild(overlay);
+
+    function close() { overlay.remove(); }
+    document.getElementById('mv-sign-close').addEventListener('click', close);
+    document.getElementById('mv-sign-cancel').addEventListener('click', close);
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+
+    document.getElementById('mv-sign-confirm').addEventListener('click', function () {
+      var method = document.querySelector('input[name="signmethod"]:checked').value;
+      var fileInput = document.getElementById('mv-sign-file');
+      var file = fileInput.files[0];
+      if (!file) {
+        alert('Bitte zuerst eine Datei auswählen.');
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Datei zu gross — max. 5MB');
+        return;
+      }
+      var reader = new FileReader();
+      reader.onload = function (e) {
+        var dataUri = e.target.result;
+        // Save to pm_files under tenant
+        var allFiles = {};
+        try { allFiles = JSON.parse(localStorage.getItem('cache_pm_files') || '{}'); } catch (e) {}
+        var tenantFiles = allFiles[CURRENT.tenantId] || [];
+        var fileId = 'f_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        var fileRec = {
+          id: fileId,
+          typ: 'mietvertrag_signed',
+          label: 'Mietvertrag (unterzeichnet)',
+          name: file.name,
+          size: file.size,
+          mimeType: file.type,
+          data: dataUri,
+          datum: new Date().toLocaleDateString('de-CH'),
+          uploadedAt: new Date().toISOString(),
+          contractId: CURRENT.id
+        };
+        tenantFiles.push(fileRec);
+        allFiles[CURRENT.tenantId] = tenantFiles;
+        var json = JSON.stringify(allFiles);
+        localStorage.setItem('cache_pm_files', json);
+        supaPush('pm_files', json);
+
+        // Update contract
+        CURRENT.status = 'unterzeichnet';
+        CURRENT.signedAt = new Date().toISOString();
+        CURRENT.signedMethod = method;
+        CURRENT.signedPdfFileId = fileId;
+        saveCurrentContract(true);
+        close();
+        alert('✅ Vertrag erfolgreich als unterzeichnet markiert.\n\nDatei liegt im Mieter-Ordner unter "Unterlagen".');
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // === Contracts list dialog ===
+  function openContractsList() {
+    if (document.getElementById('mv-list-modal')) return;
+    var all = loadContracts();
+    var overlay = document.createElement('div');
+    overlay.id = 'mv-list-modal';
+    overlay.style.cssText =
+      'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99995;' +
+      'display:flex;align-items:center;justify-content:center;padding:20px;';
+
+    var labels = {
+      entwurf: { icon: '📝', text: 'Entwurf', bg: '#F3F4F6', color: '#374151' },
+      gesendet: { icon: '📤', text: 'Gesendet', bg: '#FEF3C7', color: '#92400E' },
+      unterzeichnet: { icon: '✅', text: 'Unterzeichnet', bg: '#DCFCE7', color: '#166534' },
+      aktiv: { icon: '🏠', text: 'Aktiv', bg: '#DBEAFE', color: '#1E40AF' }
+    };
+
+    var rows = all.slice().reverse().map(function (c) {
+      var l = labels[c.status] || labels.entwurf;
+      return '<div class="mv-c-row" data-id="' + esc(c.id) + '" style="display:grid;grid-template-columns:1fr auto auto auto;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid ' +
+        COL_BORDER + ';cursor:pointer;" onmouseover="this.style.background=\'#F9F8F4\';" onmouseout="this.style.background=\'transparent\';">' +
+        '<div><div style="font-weight:600;font-size:13px;color:' + COL_DARK + ';">' +
+        esc(c.mieterName || '—') + '</div>' +
+        '<div style="font-size:11px;color:' + COL_GRAY + ';">Mietbeginn: ' +
+        esc(c.mietbeginn || '—') + ' · ' +
+        (c.updated ? new Date(c.updated).toLocaleDateString('de-CH') : '') + '</div></div>' +
+        '<span style="padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600;background:' +
+        l.bg + ';color:' + l.color + ';white-space:nowrap;">' + l.icon + ' ' + l.text + '</span>' +
+        '<button class="mv-c-open" data-id="' + esc(c.id) + '" style="padding:5px 10px;border-radius:6px;border:1px solid ' +
+        COL_BORDER + ';background:#fff;cursor:pointer;font-size:11px;">Öffnen</button>' +
+        '<button class="mv-c-del" data-id="' + esc(c.id) +
+        '" style="width:26px;height:26px;border-radius:6px;border:1px solid #FECACA;background:#FEF2F2;color:#991B1B;cursor:pointer;font-size:12px;">✕</button>' +
+        '</div>';
+    }).join('');
+
+    if (!all.length) rows = '<div style="padding:40px;text-align:center;color:' + COL_GRAY + ';font-size:13px;">Noch keine Verträge gespeichert</div>';
+
+    overlay.innerHTML =
+      '<div style="background:#fff;border-radius:16px;max-width:720px;width:100%;max-height:90vh;overflow-y:auto;">' +
+      '<div style="padding:22px 26px;border-bottom:1px solid ' + COL_BORDER +
+      ';display:flex;justify-content:space-between;align-items:center;">' +
+      '<div><div style="font-size:18px;font-weight:700;color:' + COL_DARK +
+      ';">📋 Alle Mietverträge</div>' +
+      '<div style="font-size:12px;color:' + COL_GRAY + ';margin-top:2px">' +
+      all.length + ' gespeichert</div></div>' +
+      '<button id="mv-list-close" style="width:32px;height:32px;border-radius:50%;border:1px solid ' +
+      COL_BORDER + ';background:#fff;font-size:18px;cursor:pointer;">×</button>' +
+      '</div>' +
+      '<div style="padding:0;">' + rows + '</div>' +
+      '</div>';
+
+    document.body.appendChild(overlay);
+    document.getElementById('mv-list-close').addEventListener('click', function () { overlay.remove(); });
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
+
+    overlay.querySelectorAll('.mv-c-open').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var id = btn.getAttribute('data-id');
+        overlay.remove();
+        loadContractIntoForm(id);
+      });
+    });
+    overlay.querySelectorAll('.mv-c-del').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var id = btn.getAttribute('data-id');
+        if (!window.confirm('Vertrag wirklich löschen?')) return;
+        var arr = loadContracts().filter(function (x) { return x.id !== id; });
+        saveContracts(arr);
+        overlay.remove();
+        openContractsList();
+      });
+    });
+  }
+
+  // Auto-promotion: unterzeichnet → aktiv when mietbeginn <= today
+  function autoPromoteActive() {
+    var all = loadContracts();
+    var today = new Date().toISOString().slice(0, 10);
+    var changed = false;
+    all.forEach(function (c) {
+      if (c.status !== 'unterzeichnet') return;
+      if (!c.mietbeginn) return;
+      // mietbeginn is DD.MM.YYYY or YYYY-MM-DD
+      var iso = c.mietbeginn;
+      var m = iso.match(/^(\d{2})\.(\d{2})\.(\d{4})/);
+      if (m) iso = m[3] + '-' + m[2] + '-' + m[1];
+      if (iso <= today) {
+        c.status = 'aktiv';
+        c.activatedAt = new Date().toISOString();
+        changed = true;
+      }
+    });
+    if (changed) {
+      saveContracts(all);
+      LOG('auto-promoted contracts to aktiv');
+    }
+  }
+
   function openPanel() {
     if (document.getElementById('mv-panel')) return;
     LOG('openPanel');
@@ -906,14 +1427,28 @@ react-dom/cjs/react-dom-client.production.js:
     document.getElementById('mv-print').addEventListener('click', function () {
       doPrint(tenants);
     });
+    document.getElementById('mv-save').addEventListener('click', function () {
+      saveCurrentContract(false);
+    });
+    document.getElementById('mv-send').addEventListener('click', openSendDialogForContract);
+    document.getElementById('mv-sign').addEventListener('click', openSignDialog);
+    document.getElementById('mv-list').addEventListener('click', openContractsList);
+
     var sel = document.getElementById('mv-tenant');
     sel.addEventListener('change', function () {
+      resetCurrent();
+      CURRENT.tenantId = sel.value;
       fillTenant(tenants, sel.value);
+      updateStatusBadge();
     });
+    resetCurrent();
     if (tenants.length) {
       sel.value = tenants[0].id;
+      CURRENT.tenantId = tenants[0].id;
       fillTenant(tenants, tenants[0].id);
     }
+    autoPromoteActive();
+    updateStatusBadge();
   }
 
   function closePanel() {
@@ -1074,12 +1609,42 @@ react-dom/cjs/react-dom-client.production.js:
       ])
     );
 
-    // Print Button
+    // Aktions-Leiste (Workflow: Speichern / Drucken / Senden / Unterzeichnet markieren)
     parts.push(
-      '<div style="margin-top:28px;display:flex;gap:12px;justify-content:flex-end;">',
-      '  <button id="mv-print" style="background:' +
+      '<div id="mv-status-bar" style="margin-top:20px;background:#fff;border-radius:12px;border:1px solid ' +
+        COL_BORDER +
+        ';padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">',
+      '  <div style="display:flex;align-items:center;gap:12px;">',
+      '    <span style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:' +
+        COL_GRAY +
+        ';">Status</span>',
+      '    <span id="mv-status-badge" style="padding:5px 12px;border-radius:20px;font-size:12px;font-weight:600;background:#F3F4F6;color:#374151;">📝 Entwurf (nicht gespeichert)</span>',
+      '    <span id="mv-contract-id" style="font-size:11px;color:' + COL_GRAY + ';font-family:monospace;"></span>',
+      '  </div>',
+      '  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">',
+      '    <button id="mv-list" style="padding:8px 14px;border-radius:8px;border:1px solid ' +
+        COL_BORDER +
+        ';background:#fff;color:' +
+        COL_DARK +
+        ';cursor:pointer;font-size:12px;font-weight:500;font-family:inherit;">📋 Alle Verträge</button>',
+      '  </div>',
+      '</div>'
+    );
+
+    parts.push(
+      '<div style="margin-top:14px;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">',
+      '  <button id="mv-save" style="background:#fff;color:' +
+        COL_DARK +
+        ';border:1.5px solid ' + COL_BORDER + ';border-radius:10px;padding:11px 20px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">💾 Speichern</button>',
+      '  <button id="mv-print" style="background:#fff;color:' +
+        COL_DARK +
+        ';border:1.5px solid ' + COL_BORDER + ';border-radius:10px;padding:11px 20px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">🖨 Drucken / PDF</button>',
+      '  <button id="mv-send" style="background:#fff;color:' +
+        COL_DARK +
+        ';border:1.5px solid ' + COL_BORDER + ';border-radius:10px;padding:11px 20px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">📤 Senden</button>',
+      '  <button id="mv-sign" style="background:' +
         COL_RED +
-        ';color:#fff;border:none;border-radius:10px;padding:13px 28px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;box-shadow:0 2px 10px rgba(192,57,43,0.30);letter-spacing:-0.01em;">🖨 Drucken / PDF</button>',
+        ';color:#fff;border:none;border-radius:10px;padding:11px 20px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;box-shadow:0 2px 10px rgba(192,57,43,0.30);">✅ Als unterzeichnet markieren</button>',
       '</div>'
     );
 
