@@ -639,6 +639,8 @@ react-dom/cjs/react-dom-client.production.js:
 
 
 
+
+
 <script id="mv-new-pdf-module">
 /* Mietvertrag PDF — eigenständiger Tab, unabhängig von Ar() */
 (function () {
@@ -2542,9 +2544,20 @@ react-dom/cjs/react-dom-client.production.js:
   }
   setupSidebarAutoClose();
   setTimeout(setupSupabase, 1000);
-  var delays = [0, 200, 600, 1400, 3000, 6000];
-  for (var i = 0; i < delays.length; i++) {
-    setTimeout(injectSidebar, delays[i]);
+  // Sidebar injection disabled — the Vorlagen-Hub module handles it now.
+  // We just hide the original "Mietvertrag" entry.
+  function hideOriginalMV() {
+    var sb = findSidebar();
+    if (!sb) return false;
+    hideOldMietvertragEntry(sb);
+    // Also remove any mv-new-side if it exists from previous run
+    var self = document.getElementById('mv-new-side');
+    if (self) self.remove();
+    return true;
+  }
+  var hideDelays = [0, 200, 600, 1400, 3000, 6000];
+  for (var i = 0; i < hideDelays.length; i++) {
+    setTimeout(hideOriginalMV, hideDelays[i]);
   }
 
   // Expose for Vorlagen Hub
@@ -3749,68 +3762,72 @@ react-dom/cjs/react-dom-client.production.js:
         '</tr>';
     }).join('');
 
+    // Logo (SVG base64) — fetch from window if exported, else empty
+    var logoSrc = window.__CA_LOGO_SRC || '';
+
     return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><title>Mietzinsquittung</title>' +
       '<style>' +
-      '@page{size:A4;margin:0}' +
+      '@page{margin:0;size:A4}' +
       '*{box-sizing:border-box;margin:0;padding:0}' +
-      'html,body{width:210mm;background:#fff;font-family:"Helvetica Neue",Arial,sans-serif;font-size:10.5pt;color:#1a1a1a;line-height:1.6}' +
-      '.sidebar{position:fixed;left:0;top:0;bottom:0;width:9px;background:#C0392B;z-index:100}' +
-      '.bottom-bar{position:fixed;bottom:0;left:0;right:0;height:11px;background:#C0392B;z-index:100}' +
-      '.page{margin-left:18px;padding:6mm 18mm 20mm 14mm;min-height:287mm}' +
-      '.header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:4mm;width:100%}' +
-      '.contact-info{font-size:8pt;color:#333;line-height:1.9}' +
-      '.recipient{margin:14mm 0 8mm 55%;font-size:10.5pt;line-height:1.7}' +
-      '.subject{font-size:13pt;font-weight:700;margin:8mm 0 6mm;color:#C0392B}' +
-      '.meta{margin-bottom:6mm;font-size:10pt;color:#333}' +
-      '.meta span{display:inline-block;min-width:38mm;font-weight:600;color:#1a1a1a}' +
-      'p{margin-bottom:4mm;line-height:1.7}' +
-      'table{width:100%;border-collapse:collapse;margin:4mm 0 8mm;font-size:10.5pt}' +
-      'th{text-align:left;padding:8px 10px;border-bottom:2px solid #1a1a1a;font-weight:700;font-size:9.5pt;text-transform:uppercase;letter-spacing:0.06em}' +
+      'body{print-color-adjust:exact;-webkit-print-color-adjust:exact;font-family:"Helvetica Neue",Arial,sans-serif;font-size:10px;color:#1a1a1a}' +
+      'table{width:100%;border-collapse:collapse;margin:4mm 0 6mm;font-size:11px}' +
+      'th{text-align:left;padding:8px 10px;border-bottom:2px solid #1a1a1a;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:0.06em}' +
       '.total-row{border-top:2px solid #1a1a1a;font-weight:700}' +
-      '.total-row td{padding:10px;font-size:12pt}' +
-      '.in-worten{font-style:italic;color:#666;margin-bottom:6mm}' +
-      '.sig{margin-top:18mm;display:flex;justify-content:space-between;gap:14mm}' +
-      '.sig-col{flex:1;border-top:1px solid #1a1a1a;padding-top:3mm;font-size:9.5pt}' +
-      '@media print{.sidebar,.bottom-bar{display:block!important}html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}' +
+      '.total-row td{padding:10px;font-size:12px}' +
+      '.in-worten{font-style:italic;color:#666;margin-bottom:4mm}' +
+      'p{margin-bottom:3mm;line-height:1.65}' +
+      '.sig{margin-top:14mm;display:flex;justify-content:space-between;gap:14mm}' +
+      '.sig-col{flex:1;border-top:1px solid #1a1a1a;padding-top:3mm;font-size:10px}' +
       '</style></head><body>' +
-      '<div class="sidebar"></div><div class="bottom-bar"></div>' +
-      '<div class="page">' +
 
-      // Header
-      '<div class="header">' +
-      '<div style="display:flex;align-items:center;gap:0;">' +
-      '<div style="background:#C0392B;width:45px;align-self:stretch;display:flex;flex-direction:column;justify-content:center;gap:7px;padding:0 6px;margin-right:12px;flex-shrink:0;">' +
-      '<div style="width:34px;height:3px;background:#fff;"></div>' +
-      '<div style="width:34px;height:3px;background:#fff;"></div>' +
-      '<div style="width:34px;height:3px;background:#fff;"></div>' +
-      '<div style="width:34px;height:3px;background:#fff;"></div>' +
+      // === Root container matching invoice layout ===
+      '<div style="display:flex;width:794px;min-height:1123px;background:#fff">' +
+
+      // Left red icon sidebar (same as invoice)
+      '<div style="width:40px;background:#C0392B;flex-shrink:0;display:flex;flex-direction:column;align-items:center;padding-top:32px;gap:18px">' +
+      '<span style="color:#fff;font-size:12px">☎</span>' +
+      '<span style="color:#fff;font-size:12px">✉</span>' +
+      '<span style="color:#fff;font-size:12px">⊕</span>' +
+      '<span style="color:#fff;font-size:12px">◎</span>' +
       '</div>' +
-      '<div class="contact-info">' +
+
+      // Main content
+      '<div style="flex:1;padding:28px 36px 0 24px;display:flex;flex-direction:column">' +
+
+      // Header row: contact block + logo
+      '<div style="display:flex;justify-content:space-between;margin-bottom:28px">' +
+      '<div style="display:flex;gap:0;align-items:stretch;">' +
+      '<div style="background:#C0392B;padding:6px 8px;display:flex;flex-direction:column;justify-content:center;gap:5px;margin-right:12px;flex-shrink:0;">' +
+      '<div style="width:30px;height:2.5px;background:#fff;"></div>'.repeat(4) +
+      '</div>' +
+      '<div style="font-size:9px;color:#666;line-height:2">' +
       '<div>T: ' + esc(f.firmaPhone || '') + '</div>' +
       '<div>Mail: ' + esc(f.firmaMail || '') + '</div>' +
       '<div>' + esc(f.firmaWeb || '') + '</div>' +
-      '<div style="white-space:nowrap">' + esc(f.firmaAdresse || '') + ' | ' + esc(f.firmaPlz || '') + ' ' + esc(f.firmaStadt || '') + '</div>' +
+      '<div>' + esc(f.firmaAdresse || '') + ' – CH-' + esc(f.firmaPlz || '') + ' ' + esc(f.firmaStadt || '') + '</div>' +
       '</div>' +
       '</div>' +
-      '<div style="font-family:\'Helvetica Neue\',sans-serif;font-weight:800;font-size:22pt;color:#1a1a1a;letter-spacing:-0.02em;">' +
-      esc(f.firmaName || 'City Apartments GmbH') + '</div>' +
+      (logoSrc
+        ? '<img src="' + logoSrc + '" style="height:50px;width:auto;" alt="Logo"/>'
+        : '<div style="font-weight:800;font-size:20pt;color:#1a1a1a;letter-spacing:-0.02em;">' + esc(f.firmaName || 'City Apartments GmbH') + '</div>') +
       '</div>' +
 
-      // Recipient
-      '<div class="recipient">' +
+      // Meta left + Recipient right
+      '<div style="display:flex;justify-content:space-between;margin-bottom:20px;gap:40px;">' +
+      '<div style="font-size:11px;line-height:2">' +
+      '<div><span style="display:inline-block;min-width:42mm;font-weight:700">Quittungs-Nr.:</span>' + esc(d.nummer || '—') + '</div>' +
+      '<div><span style="display:inline-block;min-width:42mm;font-weight:700">Datum:</span>' + esc(heute()) + '</div>' +
+      '<div><span style="display:inline-block;min-width:42mm;font-weight:700">Mietobjekt:</span>' + esc(d.tenant.unit || '') + (d.tenant.address ? ', ' + esc(d.tenant.address) : '') + '</div>' +
+      '</div>' +
+      '<div style="text-align:left;font-size:11px;line-height:1.85;padding-left:20px;min-width:220px">' +
+      '<div style="border-bottom:1px solid #ddd;padding-bottom:3px;margin-bottom:5px;font-size:9px;color:#666">' + esc(f.firmaName || 'City Apartments GmbH') + '</div>' +
       '<div style="font-weight:500">' + esc(d.tenant.nameRaw || (d.tenant.vorname + ' ' + d.tenant.nachname)) + '</div>' +
       '<div>' + esc(d.tenant.address || '') + '</div>' +
       '</div>' +
-
-      // Meta
-      '<div class="meta" style="margin-top:6mm">' +
-      '<div><span>Quittungs-Nr.:</span>' + esc(d.nummer || '—') + '</div>' +
-      '<div><span>Datum:</span>' + esc(heute()) + '</div>' +
-      '<div><span>Mietobjekt:</span>' + esc(d.tenant.unit || '') + (d.tenant.address ? ', ' + esc(d.tenant.address) : '') + '</div>' +
       '</div>' +
 
       // Title
-      '<div class="subject">MIETZINSQUITTUNG</div>' +
+      '<h1 style="font-family:\'Helvetica Neue\',sans-serif;font-weight:800;font-size:26pt;color:#1a1a1a;letter-spacing:-0.03em;margin:12px 0 14px;">Mietzinsquittung</h1>' +
 
       // Body
       '<p>Hiermit wird bestätigt, dass <strong>' + esc(d.tenant.nameRaw || (d.tenant.vorname + ' ' + d.tenant.nachname)) + '</strong> ' +
@@ -3826,10 +3843,9 @@ react-dom/cjs/react-dom-client.production.js:
 
       '<div class="in-worten">In Worten: ' + esc(numInWorten(d.total)) + ' Franken</div>' +
 
-      '<p>Die Zahlungen wurden ordnungsgemäß auf das Konto des Vermieters überwiesen bzw. in bar entgegengenommen. ' +
-      'Es bestehen keine weiteren Forderungen für die oben genannten Monate.</p>' +
+      '<p>Die Zahlungen wurden ordnungsgemäß auf das Konto des Vermieters überwiesen bzw. in bar entgegengenommen. Es bestehen keine weiteren Forderungen für die oben genannten Monate.</p>' +
 
-      '<p style="margin-top:10mm">Diese Quittung wurde maschinell erstellt und ist ohne Unterschrift gültig.</p>' +
+      '<p style="margin-top:8mm;color:#666;font-size:10px">Diese Quittung wurde maschinell erstellt und ist ohne Unterschrift gültig.</p>' +
 
       // Signature
       '<div class="sig">' +
@@ -3837,7 +3853,9 @@ react-dom/cjs/react-dom-client.production.js:
       '<div class="sig-col">' + esc(f.firmaName || 'City Apartments GmbH') + '<br/><span style="color:#666">Vermieter</span></div>' +
       '</div>' +
 
-      '</div>' +
+      '</div>' + // /main content
+      '</div>' + // /root flex
+
       '<scr' + 'ipt>window.onload=function(){setTimeout(function(){window.print()},400)}</scr' + 'ipt>' +
       '</body></html>';
   }
@@ -4009,9 +4027,42 @@ react-dom/cjs/react-dom-client.production.js:
     tryInject();
   }
 
+  // === Logo extraction ===
+  // Look for SVG logo used in invoices (data:image/svg+xml;base64,...) and cache it globally
+  function captureLogo() {
+    if (window.__CA_LOGO_SRC) return;
+    // Look at all inline script strings and images in the DOM
+    try {
+      var imgs = document.querySelectorAll('img');
+      for (var i = 0; i < imgs.length; i++) {
+        var src = imgs[i].getAttribute('src') || '';
+        if (src.indexOf('data:image/svg+xml;base64,') === 0 && src.length > 1000) {
+          window.__CA_LOGO_SRC = src;
+          LOG('logo captured from DOM img');
+          return;
+        }
+      }
+      // Fallback: search in script tag for the invoice template
+      var scripts = document.querySelectorAll('script');
+      for (var j = 0; j < scripts.length; j++) {
+        var txt = scripts[j].textContent || '';
+        var m = txt.match(/data:image\/svg\+xml;base64,[A-Za-z0-9+/=]{1000,}/);
+        if (m) {
+          window.__CA_LOGO_SRC = m[0];
+          LOG('logo captured from script');
+          return;
+        }
+      }
+    } catch (e) {}
+  }
+
   // === Init ===
   function init() {
     injectTriggerButton();
+    captureLogo();
+    // Try again after React has rendered more
+    setTimeout(captureLogo, 2000);
+    setTimeout(captureLogo, 5000);
     LOG('ready — call window.openQuittungModal() to open');
   }
   if (document.readyState === 'loading') {
@@ -4309,30 +4360,65 @@ react-dom/cjs/react-dom-client.production.js:
   }
 
   function clickSidebarItem(labelText) {
-    var all = document.querySelectorAll('nav a, nav div, nav button, aside a, aside div, aside button, [role="navigation"] a, [role="navigation"] div, [role="navigation"] button');
-    if (!all.length) all = document.querySelectorAll('a, div, button');
-    for (var i = 0; i < all.length; i++) {
-      var el = all[i];
-      var direct = '';
-      for (var k = 0; k < el.childNodes.length; k++) {
-        var n = el.childNodes[k];
-        if (n.nodeType === 3) direct += n.nodeValue;
+    // Strategy: find any element whose trimmed textContent EQUALS the label,
+    // then walk up to find the clickable ancestor (element with click handler, cursor:pointer, or role)
+    // and dispatch a click there.
+    function findExact(label) {
+      var all = document.querySelectorAll('a, div, button, li, span');
+      for (var i = 0; i < all.length; i++) {
+        var el = all[i];
+        // Use deep textContent (elements have text + icon + badge — match on full text containing label as word)
+        var t = (el.textContent || '').trim();
+        if (t === label) return el;
       }
-      direct = direct.trim();
-      if (direct === labelText) {
-        el.click();
-        return true;
-      }
+      return null;
     }
-    // Fallback: deep search
-    for (var j = 0; j < all.length; j++) {
-      if ((all[j].textContent || '').trim() === labelText) {
-        all[j].click();
-        return true;
+    function findContaining(label) {
+      // Prefer shortest matching textContent to avoid matching huge containers
+      var all = document.querySelectorAll('a, div, button, li');
+      var best = null;
+      var bestLen = 1e9;
+      for (var i = 0; i < all.length; i++) {
+        var el = all[i];
+        var t = (el.textContent || '').trim();
+        if (t.indexOf(label) !== -1 && t.length < bestLen && t.length < label.length + 10) {
+          best = el;
+          bestLen = t.length;
+        }
       }
+      return best;
     }
-    alert('Menüpunkt "' + labelText + '" nicht gefunden. Bitte manuell in der Sidebar anklicken.');
-    return false;
+
+    var target = findExact(labelText) || findContaining(labelText);
+    if (!target) {
+      alert('Menüpunkt "' + labelText + '" nicht gefunden. Bitte manuell in der Sidebar anklicken.');
+      return false;
+    }
+
+    // Find the actual clickable ancestor (walk up to max 5 levels)
+    var node = target;
+    var clickable = null;
+    for (var j = 0; j < 6 && node; j++) {
+      if (node.tagName === 'A' || node.tagName === 'BUTTON') { clickable = node; break; }
+      var cs = '';
+      try { cs = window.getComputedStyle(node).cursor; } catch (e) {}
+      if (cs === 'pointer' || (node.onclick) || node.getAttribute('role') === 'button' || node.getAttribute('role') === 'menuitem') {
+        clickable = node;
+        break;
+      }
+      node = node.parentElement;
+    }
+    // Fallback: just click the original target
+    if (!clickable) clickable = target;
+
+    // Dispatch a proper click via MouseEvent (React listens to this)
+    try {
+      clickable.click();
+    } catch (e) {
+      var ev = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
+      clickable.dispatchEvent(ev);
+    }
+    return true;
   }
 
   // === Tenant select prompt for Wohnsitzbestätigung ===
@@ -4589,44 +4675,43 @@ react-dom/cjs/react-dom-client.production.js:
 
   // === Sidebar integration ===
   function replaceMietvertragEntry() {
-    if (document.getElementById('vh-sidebar-item')) return true;
+    // Already placed? just ensure it's still visible
+    var existing = document.getElementById('vh-sidebar-item');
+    if (existing) {
+      existing.style.display = '';
+      return true;
+    }
 
-    // Priority: the mv_new's own entry (id="mv-new-side")
-    var reference = document.getElementById('mv-new-side');
-    if (!reference) {
-      // Fallback: search for "Mietvertrag" text
-      var all = document.querySelectorAll('nav a, nav div, nav button, aside a, aside div, aside button');
-      if (!all.length) all = document.querySelectorAll('a, div, button');
-      for (var i = 0; i < all.length; i++) {
-        var el = all[i];
-        var direct = '';
-        for (var k = 0; k < el.childNodes.length; k++) {
-          if (el.childNodes[k].nodeType === 3) direct += el.childNodes[k].nodeValue;
-        }
-        direct = direct.trim();
-        if (direct === 'Mietvertrag') {
-          reference = el;
-          break;
-        }
+    // Find the "Mietvertrag" original entry (may have display:none from mv_new)
+    var all = document.querySelectorAll('nav a, nav div, nav button, aside a, aside div, aside button, [class*="sidebar"] a, [class*="sidebar"] div, [class*="sidebar"] button');
+    if (!all.length) all = document.querySelectorAll('a, div, button');
+    var reference = null;
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      var direct = '';
+      for (var k = 0; k < el.childNodes.length; k++) {
+        if (el.childNodes[k].nodeType === 3) direct += el.childNodes[k].nodeValue;
+      }
+      direct = direct.trim();
+      if (direct === 'Mietvertrag') {
+        reference = el;
+        break;
       }
     }
     if (!reference) return false;
 
-    // If reference is mv-new-side, use it directly as row
     var row = reference;
-    if (reference.id !== 'mv-new-side') {
-      var depth = 0;
-      while (row && depth < 3) {
-        if (row.parentElement && row.parentElement.children.length >= 3) break;
-        row = row.parentElement;
-        depth++;
-      }
+    var depth = 0;
+    while (row && depth < 3) {
+      if (row.parentElement && row.parentElement.children.length >= 3) break;
+      row = row.parentElement;
+      depth++;
     }
-    if (!row) return false;
+    if (!row || !row.parentElement) return false;
 
-    // Clone, relabel, rewire
     var clone = row.cloneNode(true);
     clone.id = 'vh-sidebar-item';
+    clone.style.display = '';
     (function walk(n) {
       if (n.nodeType === 3 && n.nodeValue.trim().length > 0) {
         n.nodeValue = '📚 Vorlagen & Versand';
@@ -4651,10 +4736,9 @@ react-dom/cjs/react-dom-client.production.js:
       openHub();
     }, true);
     row.parentElement.insertBefore(fresh, row);
-    // Hide the original entry
     row.style.display = 'none';
 
-    // Also hide Quittung sidebar entry (now in the hub)
+    // Hide Quittung sidebar entry (now in the hub)
     var qsb = document.getElementById('quittung-sidebar-item');
     if (qsb) qsb.style.display = 'none';
 
