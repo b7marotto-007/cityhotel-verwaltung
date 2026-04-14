@@ -641,6 +641,10 @@ react-dom/cjs/react-dom-client.production.js:
 
 
 
+
+
+
+
 <script id="mv-new-pdf-module">
 /* Mietvertrag PDF — eigenständiger Tab, unabhängig von Ar() */
 (function () {
@@ -2526,39 +2530,9 @@ react-dom/cjs/react-dom-client.production.js:
   }
 
   // === Init ===
-  var schedulePending = false;
-  function scheduleInject() {
-    if (schedulePending) return;
-    schedulePending = true;
-    requestAnimationFrame(function () {
-      schedulePending = false;
-      injectSidebar();
-    });
-  }
-  try {
-    var obs = new MutationObserver(scheduleInject);
-    obs.observe(document.documentElement, { childList: true, subtree: true });
-    LOG('observer attached');
-  } catch (e) {
-    LOG('observer failed', e);
-  }
+  // Sidebar integration removed — the Vorlagen-Hub module (vorlagen.js) manages it.
   setupSidebarAutoClose();
   setTimeout(setupSupabase, 1000);
-  // Sidebar injection disabled — the Vorlagen-Hub module handles it now.
-  // We just hide the original "Mietvertrag" entry.
-  function hideOriginalMV() {
-    var sb = findSidebar();
-    if (!sb) return false;
-    hideOldMietvertragEntry(sb);
-    // Also remove any mv-new-side if it exists from previous run
-    var self = document.getElementById('mv-new-side');
-    if (self) self.remove();
-    return true;
-  }
-  var hideDelays = [0, 200, 600, 1400, 3000, 6000];
-  for (var i = 0; i < hideDelays.length; i++) {
-    setTimeout(hideOriginalMV, hideDelays[i]);
-  }
 
   // Expose for Vorlagen Hub
   window.openMietvertragPanel = openPanel;
@@ -4674,95 +4648,122 @@ react-dom/cjs/react-dom-client.production.js:
   }
 
   // === Sidebar integration ===
-  function replaceMietvertragEntry() {
-    // Already placed? just ensure it's still visible
-    var existing = document.getElementById('vh-sidebar-item');
-    if (existing) {
-      existing.style.display = '';
-      return true;
-    }
+  // Strategy: Intercept clicks anywhere on the page. If user clicks an element whose
+  // trimmed text is exactly "Mietvertrag" (and it's in a nav/sidebar context),
+  // open the Vorlagen-Hub instead. This is bulletproof regardless of how React
+  // structures the sidebar.
+  function interceptMietvertragClicks() {
+    if (window.__vh_click_interceptor_on) return;
+    window.__vh_click_interceptor_on = true;
 
-    // Find the "Mietvertrag" original entry (may have display:none from mv_new)
-    var all = document.querySelectorAll('nav a, nav div, nav button, aside a, aside div, aside button, [class*="sidebar"] a, [class*="sidebar"] div, [class*="sidebar"] button');
-    if (!all.length) all = document.querySelectorAll('a, div, button');
-    var reference = null;
-    for (var i = 0; i < all.length; i++) {
-      var el = all[i];
-      var direct = '';
-      for (var k = 0; k < el.childNodes.length; k++) {
-        if (el.childNodes[k].nodeType === 3) direct += el.childNodes[k].nodeValue;
-      }
-      direct = direct.trim();
-      if (direct === 'Mietvertrag') {
-        reference = el;
-        break;
-      }
-    }
-    if (!reference) return false;
+    document.addEventListener('click', function (e) {
+      if (e.__vh_handled) return;
 
-    var row = reference;
-    var depth = 0;
-    while (row && depth < 3) {
-      if (row.parentElement && row.parentElement.children.length >= 3) break;
-      row = row.parentElement;
-      depth++;
-    }
-    if (!row || !row.parentElement) return false;
-
-    var clone = row.cloneNode(true);
-    clone.id = 'vh-sidebar-item';
-    clone.style.display = '';
-    (function walk(n) {
-      if (n.nodeType === 3 && n.nodeValue.trim().length > 0) {
-        n.nodeValue = '📚 Vorlagen & Versand';
-        return true;
-      }
-      if (n.childNodes) {
-        for (var k = 0; k < n.childNodes.length; k++) {
-          if (walk(n.childNodes[k])) return true;
+      // Walk up from click target — check up to 5 levels if we're on a Mietvertrag entry
+      var node = e.target;
+      for (var i = 0; i < 5 && node; i++) {
+        var txt = (node.textContent || '').trim();
+        // Match: our new label OR the original "Mietvertrag" (in case relabel hasn't happened yet)
+        var isOurLabel = txt === '📚 Vorlagen & Versand' || /Vorlagen\s*&\s*Versand/.test(txt);
+        var isMietvertrag = txt === 'Mietvertrag' || /^[☰📄]?\s*Mietvertrag$/.test(txt);
+        if (isOurLabel || isMietvertrag) {
+          // Check context: inside a sidebar-like container?
+          var isNav = false;
+          var p = node;
+          for (var j = 0; j < 10 && p; j++) {
+            var tag = (p.tagName || '').toLowerCase();
+            var cls = (p.className && typeof p.className === 'string' ? p.className : '').toLowerCase();
+            if (tag === 'nav' || tag === 'aside' ||
+                cls.indexOf('sidebar') !== -1 ||
+                cls.indexOf('menu') !== -1 ||
+                cls.indexOf('nav') !== -1) {
+              isNav = true;
+              break;
+            }
+            p = p.parentElement;
+          }
+          // Accept even outside nav if text is short and matches exactly
+          if (isNav || txt.length < 30) {
+            e.__vh_handled = true;
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+            LOG('intercepted sidebar click → opening Hub');
+            openHub();
+            return;
+          }
         }
+        node = node.parentElement;
       }
-      return false;
-    })(clone);
-    var badges = clone.querySelectorAll('span');
-    badges.forEach(function (b) {
-      var t = (b.textContent || '').trim();
-      if (/^\d+$/.test(t)) b.remove();
+    }, true); // capture phase — runs before React's handlers
+    LOG('click interceptor installed');
+  }
+
+  // Also try to replace label visually — rename "Mietvertrag" to "📚 Vorlagen & Versand"
+  function relabelSidebarEntries() {
+    // Find text nodes with exact value "Mietvertrag" in nav/sidebar context
+    var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    var nodes = [];
+    var node;
+    while (node = walker.nextNode()) {
+      if (node.nodeValue && node.nodeValue.trim() === 'Mietvertrag') {
+        // Check context (sidebar-like)
+        var p = node.parentElement;
+        var isNav = false;
+        for (var j = 0; j < 8 && p; j++) {
+          var tag = (p.tagName || '').toLowerCase();
+          var cls = (p.className && typeof p.className === 'string' ? p.className : '').toLowerCase();
+          if (tag === 'nav' || tag === 'aside' ||
+              cls.indexOf('sidebar') !== -1 ||
+              cls.indexOf('menu') !== -1) {
+            isNav = true; break;
+          }
+          p = p.parentElement;
+        }
+        if (isNav) nodes.push(node);
+      }
+    }
+    nodes.forEach(function (n) {
+      if (n.nodeValue !== '📚 Vorlagen & Versand') {
+        n.nodeValue = '📚 Vorlagen & Versand';
+      }
     });
-    var fresh = clone.cloneNode(true);
-    fresh.addEventListener('click', function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      openHub();
-    }, true);
-    row.parentElement.insertBefore(fresh, row);
-    row.style.display = 'none';
+    if (nodes.length > 0) LOG('relabeled', nodes.length, 'sidebar entries');
+    return nodes.length > 0;
+  }
 
-    // Hide Quittung sidebar entry (now in the hub)
-    var qsb = document.getElementById('quittung-sidebar-item');
-    if (qsb) qsb.style.display = 'none';
-
-    LOG('sidebar integrated');
-    return true;
+  // Old helper kept for compatibility but now does relabeling
+  function replaceMietvertragEntry() {
+    return relabelSidebarEntries();
   }
 
   // === Init ===
   function init() {
     window.openVorlagenHub = openHub;
-    var tries = 0;
-    function tryInject() {
-      if (replaceMietvertragEntry()) return;
-      if (++tries < 12) setTimeout(tryInject, 900);
-    }
-    tryInject();
+    window.logVersand = function (rec) { saveHistoryRec(rec); };
 
-    // Hook into send events from other modules
-    // Patch inv_track's markSent to also log here
-    var origSetItem = localStorage.setItem;
-    // Not hooking localStorage — instead modules can call window.logVersand(rec)
-    window.logVersand = function (rec) {
-      saveHistoryRec(rec);
-    };
+    // Install bulletproof click interceptor (capture phase)
+    interceptMietvertragClicks();
+
+    // Relabel sidebar entries ("Mietvertrag" → "📚 Vorlagen & Versand")
+    var delays = [300, 800, 1600, 3000, 5000, 8000];
+    delays.forEach(function (d) { setTimeout(relabelSidebarEntries, d); });
+
+    // Observe DOM and re-label when React re-renders
+    try {
+      var pendingTimer = null;
+      var obs = new MutationObserver(function () {
+        if (pendingTimer) return;
+        pendingTimer = setTimeout(function () {
+          pendingTimer = null;
+          relabelSidebarEntries();
+        }, 400);
+      });
+      obs.observe(document.body, { childList: true, subtree: true, characterData: true });
+      LOG('observer active');
+    } catch (e) {
+      LOG('observer failed', e);
+    }
   }
 
   if (document.readyState === 'loading') {
