@@ -645,6 +645,7 @@ react-dom/cjs/react-dom-client.production.js:
 
 
 
+
 <script id="mv-new-pdf-module">
 /* Mietvertrag PDF — eigenständiger Tab, unabhängig von Ar() */
 (function () {
@@ -4648,10 +4649,8 @@ react-dom/cjs/react-dom-client.production.js:
   }
 
   // === Sidebar integration ===
-  // Strategy: Intercept clicks anywhere on the page. If user clicks an element whose
-  // trimmed text is exactly "Mietvertrag" (and it's in a nav/sidebar context),
-  // open the Vorlagen-Hub instead. This is bulletproof regardless of how React
-  // structures the sidebar.
+  // Strategy: Intercept clicks ONLY on small leaf elements that contain
+  // exactly our label text. Avoid matching big containers.
   function interceptMietvertragClicks() {
     if (window.__vh_click_interceptor_on) return;
     window.__vh_click_interceptor_on = true;
@@ -4659,31 +4658,46 @@ react-dom/cjs/react-dom-client.production.js:
     document.addEventListener('click', function (e) {
       if (e.__vh_handled) return;
 
-      // Walk up from click target — check up to 5 levels if we're on a Mietvertrag entry
+      // Don't intercept if a modal/overlay is open (user might click inside it)
+      if (document.getElementById('vh-modal') ||
+          document.getElementById('quittung-modal') ||
+          document.getElementById('mv-panel') ||
+          document.getElementById('mv-send-modal') ||
+          document.getElementById('mv-sign-modal') ||
+          document.getElementById('mv-list-modal') ||
+          document.getElementById('inv-send-modal')) {
+        return;
+      }
+
+      // Walk up from click target — only check max 4 levels, only short text
       var node = e.target;
-      for (var i = 0; i < 5 && node; i++) {
+      for (var i = 0; i < 4 && node; i++) {
+        // Only consider leaf-ish elements (max 4 children, short text)
+        if (node.children && node.children.length > 6) {
+          node = node.parentElement;
+          continue;
+        }
         var txt = (node.textContent || '').trim();
-        // Match: our new label OR the original "Mietvertrag" (in case relabel hasn't happened yet)
-        var isOurLabel = txt === '📚 Vorlagen & Versand' || /Vorlagen\s*&\s*Versand/.test(txt);
-        var isMietvertrag = txt === 'Mietvertrag' || /^[☰📄]?\s*Mietvertrag$/.test(txt);
+        // Skip if text is too long (means we're hitting a container, not a leaf)
+        if (txt.length > 35) {
+          node = node.parentElement;
+          continue;
+        }
+        // Match VERY strictly — exact text only
+        var isOurLabel = txt === '📚 Vorlagen & Versand';
+        var isMietvertrag = txt === 'Mietvertrag' || txt === '☰Mietvertrag' || txt === '☰ Mietvertrag';
         if (isOurLabel || isMietvertrag) {
-          // Check context: inside a sidebar-like container?
-          var isNav = false;
+          // Verify we're in a sidebar context (must walk up and find nav/aside/sidebar class)
+          var inSidebar = false;
           var p = node;
-          for (var j = 0; j < 10 && p; j++) {
+          for (var j = 0; j < 8 && p; j++) {
             var tag = (p.tagName || '').toLowerCase();
             var cls = (p.className && typeof p.className === 'string' ? p.className : '').toLowerCase();
-            if (tag === 'nav' || tag === 'aside' ||
-                cls.indexOf('sidebar') !== -1 ||
-                cls.indexOf('menu') !== -1 ||
-                cls.indexOf('nav') !== -1) {
-              isNav = true;
-              break;
-            }
+            if (tag === 'nav' || tag === 'aside') { inSidebar = true; break; }
+            if (cls.indexOf('sidebar') !== -1) { inSidebar = true; break; }
             p = p.parentElement;
           }
-          // Accept even outside nav if text is short and matches exactly
-          if (isNav || txt.length < 30) {
+          if (inSidebar) {
             e.__vh_handled = true;
             e.preventDefault();
             e.stopPropagation();
@@ -4696,7 +4710,7 @@ react-dom/cjs/react-dom-client.production.js:
         node = node.parentElement;
       }
     }, true); // capture phase — runs before React's handlers
-    LOG('click interceptor installed');
+    LOG('click interceptor installed (strict mode)');
   }
 
   // Also try to replace label visually — rename "Mietvertrag" to "📚 Vorlagen & Versand"
