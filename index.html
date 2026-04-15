@@ -646,6 +646,7 @@ react-dom/cjs/react-dom-client.production.js:
 
 
 
+
 <script id="mv-new-pdf-module">
 /* Mietvertrag PDF — eigenständiger Tab, unabhängig von Ar() */
 (function () {
@@ -3314,10 +3315,29 @@ react-dom/cjs/react-dom-client.production.js:
   function loadPayments() { return loadCache('pm_payments') || []; }
   function loadInvoices() { return loadCache('pm_invoices') || []; }
   function loadFirma() {
-    try {
-      var s = localStorage.getItem('pm_firma_v2') || localStorage.getItem('pm_firma');
-      return s ? JSON.parse(s) : {};
-    } catch (e) { return {}; }
+    // App stores firma data in localStorage as 'cache_pm_firma' (via ni() helper).
+    // Fallbacks for older versions.
+    var keys = ['cache_pm_firma', 'pm_firma_v2', 'pm_firma'];
+    for (var i = 0; i < keys.length; i++) {
+      try {
+        var s = localStorage.getItem(keys[i]);
+        if (s) {
+          var obj = JSON.parse(s);
+          if (obj && (obj.firmaName || obj.firmaPhone)) return obj;
+        }
+      } catch (e) {}
+    }
+    // Fallback hardcoded defaults (same as app's Yf object)
+    return {
+      firmaName: 'City Apartments GmbH',
+      firmaAdresse: 'Alberich Zwyssigstrasse 81',
+      firmaPlz: '5430',
+      firmaStadt: 'Wettingen',
+      firmaPhone: '+41 79 555 95 15',
+      firmaMail: 'info@cityapartments.ch',
+      firmaWeb: 'www.cityapartments.ch',
+      iban: 'CH36 0076 1638 9224 1200 4'
+    };
   }
 
   function supaCfg() {
@@ -3783,7 +3803,7 @@ react-dom/cjs/react-dom-client.production.js:
       '</div>' +
       '</div>' +
       (logoSrc
-        ? '<img src="' + logoSrc + '" style="height:50px;width:auto;" alt="Logo"/>'
+        ? '<img src="' + logoSrc + '" style="height:75px;width:auto;display:block" alt="Logo"/>'
         : '<div style="font-weight:800;font-size:20pt;color:#1a1a1a;letter-spacing:-0.02em;">' + esc(f.firmaName || 'City Apartments GmbH') + '</div>') +
       '</div>' +
 
@@ -4069,10 +4089,26 @@ react-dom/cjs/react-dom-client.production.js:
   }
   function loadTenants() { return loadCache('pm_tenants') || []; }
   function loadFirma() {
-    try {
-      var s = localStorage.getItem('pm_firma_v2') || localStorage.getItem('pm_firma');
-      return s ? JSON.parse(s) : {};
-    } catch (e) { return {}; }
+    var keys = ['cache_pm_firma', 'pm_firma_v2', 'pm_firma'];
+    for (var i = 0; i < keys.length; i++) {
+      try {
+        var s = localStorage.getItem(keys[i]);
+        if (s) {
+          var obj = JSON.parse(s);
+          if (obj && (obj.firmaName || obj.firmaPhone)) return obj;
+        }
+      } catch (e) {}
+    }
+    return {
+      firmaName: 'City Apartments GmbH',
+      firmaAdresse: 'Alberich Zwyssigstrasse 81',
+      firmaPlz: '5430',
+      firmaStadt: 'Wettingen',
+      firmaPhone: '+41 79 555 95 15',
+      firmaMail: 'info@cityapartments.ch',
+      firmaWeb: 'www.cityapartments.ch',
+      iban: 'CH36 0076 1638 9224 1200 4'
+    };
   }
   function supaCfg() {
     try { return JSON.parse(localStorage.getItem('_supa_cfg') || 'null'); } catch (e) { return null; }
