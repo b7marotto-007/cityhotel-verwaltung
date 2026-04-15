@@ -651,6 +651,7 @@ react-dom/cjs/react-dom-client.production.js:
 
 
 
+
 <script id="letterhead-module">
 /* Letterhead — Shared template matching invoice exactly */
 (function () {
@@ -4642,35 +4643,48 @@ react-dom/cjs/react-dom-client.production.js:
   // === Mahnung Modal ===
   // Calculates open months for tenant from pm_payments and pm_tenants
   function calcOpenMonths(tenant) {
+    if (!tenant || !tenant.startDate) return { months: [], total: 0 };
     var payments = (function () {
       try { var s = localStorage.getItem('cache_pm_payments'); return s ? JSON.parse(s) : []; } catch (e) { return []; }
     })();
     var rent = Number(tenant.rent || 0);
+    if (!rent) return { months: [], total: 0 };
+
+    // Build a fast lookup set of paid months for this tenant
+    var paidSet = {};
+    for (var i = 0; i < payments.length; i++) {
+      var p = payments[i];
+      if (p.tenantId === tenant.id && p.paid) {
+        paidSet[p.year + '-' + p.month] = true;
+      }
+    }
+
     var openMonths = [];
     var totalOpen = 0;
-    var startDate = tenant.startDate ? new Date(tenant.startDate) : null;
+    var startDate = new Date(tenant.startDate);
+    if (isNaN(startDate.getTime())) return { months: [], total: 0 };
     var endDate = tenant.endDate ? new Date(tenant.endDate) : null;
     var today = new Date();
-    if (!startDate) return { months: [], total: 0 };
 
     var year = startDate.getFullYear();
     var month = startDate.getMonth();
     var endY = today.getFullYear();
     var endM = today.getMonth();
-    if (endDate && endDate < today) {
+    if (endDate && !isNaN(endDate.getTime()) && endDate < today) {
       endY = endDate.getFullYear();
       endM = endDate.getMonth();
     }
-    while (year < endY || (year === endY && month <= endM)) {
-      var paid = payments.find(function (p) {
-        return p.tenantId === tenant.id && p.month === month && p.year === year && p.paid;
-      });
-      if (!paid) {
+
+    // SAFETY LIMIT: max 60 months (5 years) to prevent runaway loops
+    var iterations = 0;
+    while ((year < endY || (year === endY && month <= endM)) && iterations < 60) {
+      if (!paidSet[year + '-' + month]) {
         openMonths.push({ month: month, year: year });
         totalOpen += rent;
       }
       month++;
       if (month > 11) { month = 0; year++; }
+      iterations++;
     }
     return { months: openMonths, total: totalOpen };
   }
@@ -5038,6 +5052,9 @@ react-dom/cjs/react-dom-client.production.js:
 
       // Don't intercept if a modal/overlay is open (user might click inside it)
       if (document.getElementById('vh-modal') ||
+          document.getElementById('vh-mahnung-modal') ||
+          document.getElementById('vh-fs-modal') ||
+          document.getElementById('vh-tenant-prompt') ||
           document.getElementById('quittung-modal') ||
           document.getElementById('mv-panel') ||
           document.getElementById('mv-send-modal') ||
@@ -5138,24 +5155,27 @@ react-dom/cjs/react-dom-client.production.js:
     interceptMietvertragClicks();
 
     // Relabel sidebar entries ("Mietvertrag" → "📚 Vorlagen & Versand")
+    // Initial attempts at varying delays
     var delays = [300, 800, 1600, 3000, 5000, 8000];
-    delays.forEach(function (d) { setTimeout(relabelSidebarEntries, d); });
+    delays.forEach(function (d) { setTimeout(safeRelabel, d); });
 
-    // Observe DOM and re-label when React re-renders
-    try {
-      var pendingTimer = null;
-      var obs = new MutationObserver(function () {
-        if (pendingTimer) return;
-        pendingTimer = setTimeout(function () {
-          pendingTimer = null;
-          relabelSidebarEntries();
-        }, 400);
-      });
-      obs.observe(document.body, { childList: true, subtree: true, characterData: true });
-      LOG('observer active');
-    } catch (e) {
-      LOG('observer failed', e);
+    // Slow polling every 4 seconds — much safer than MutationObserver which
+    // caused infinite loops because we modify characterData AND observe it.
+    setInterval(safeRelabel, 4000);
+    LOG('init complete (polling mode)');
+  }
+
+  // Wrapper to skip relabeling when modals are open (avoids unnecessary work)
+  function safeRelabel() {
+    if (document.getElementById('vh-modal') ||
+        document.getElementById('vh-mahnung-modal') ||
+        document.getElementById('vh-fs-modal') ||
+        document.getElementById('vh-tenant-prompt') ||
+        document.getElementById('quittung-modal') ||
+        document.getElementById('mv-panel')) {
+      return; // skip — performance during modal interaction
     }
+    try { relabelSidebarEntries(); } catch (e) { LOG('relabel failed', e); }
   }
 
   if (document.readyState === 'loading') {
