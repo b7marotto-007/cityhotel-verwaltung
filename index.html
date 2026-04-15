@@ -647,6 +647,7 @@ react-dom/cjs/react-dom-client.production.js:
 
 
 
+
 <script id="mv-new-pdf-module">
 /* Mietvertrag PDF — eigenständiger Tab, unabhängig von Ar() */
 (function () {
@@ -3803,7 +3804,7 @@ react-dom/cjs/react-dom-client.production.js:
       '</div>' +
       '</div>' +
       (logoSrc
-        ? '<img src="' + logoSrc + '" style="height:75px;width:auto;display:block" alt="Logo"/>'
+        ? '<img src="' + logoSrc + '" style="max-height:90px;max-width:280px;width:auto;height:auto;display:block" alt="Logo"/>'
         : '<div style="font-weight:800;font-size:20pt;color:#1a1a1a;letter-spacing:-0.02em;">' + esc(f.firmaName || 'City Apartments GmbH') + '</div>') +
       '</div>' +
 
@@ -4481,13 +4482,23 @@ react-dom/cjs/react-dom-client.production.js:
     });
   }
 
+  // Convert ISO date YYYY-MM-DD to Swiss DD.MM.YYYY
+  function toSwissDate(s) {
+    if (!s) return '';
+    var str = String(s).trim();
+    var m = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return m[3] + '.' + m[2] + '.' + m[1];
+    return str;
+  }
+
   // === Wohnsitzbestätigung Print ===
   function printWohnbestaetigung(t) {
     var f = loadFirma();
     var name = t.nameRaw || (t.vorname + ' ' + t.nachname);
     var address = t.address || '';
     var unit = t.unit || '';
-    var startDate = t.startDate || '';
+    var startDate = toSwissDate(t.startDate || '');
+    var geburtsdatum = toSwissDate(t.geburtsdatum || '');
 
     var html = buildLetterhead({
       firma: f,
@@ -4495,7 +4506,7 @@ react-dom/cjs/react-dom-client.production.js:
       subject: 'Wohnsitzbestätigung',
       body:
         '<p>Hiermit bestätigen wir, dass <strong>' + esc(name) + '</strong>' +
-        (t.geburtsdatum ? ', geboren am ' + esc(t.geburtsdatum) : '') +
+        (geburtsdatum ? ', geboren am ' + esc(geburtsdatum) : '') +
         ', an folgender Adresse wohnhaft ist:</p>' +
         '<p style="margin:6mm 0;padding-left:8mm;font-weight:600;line-height:1.9">' +
         esc(address) + (unit ? '<br/>' + esc(unit) : '') + '</p>' +
