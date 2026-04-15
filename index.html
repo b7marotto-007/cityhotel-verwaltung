@@ -648,6 +648,185 @@ react-dom/cjs/react-dom-client.production.js:
 
 
 
+
+<script id="letterhead-module">
+/* Letterhead — Shared template matching invoice exactly */
+(function () {
+  'use strict';
+  if (window.__CA_LETTERHEAD) return;
+  
+  var CA_LOGO_FULL = "data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiPz4KPCEtLSBHZW5lcmF0b3I6IEFkb2JlIElsbHVzdHJhdG9yIDI1LjIuMCwgU1ZHIEV4cG9ydCBQbHVnLUluIC4gU1ZHIFZlcnNpb246IDYuMDAgQnVpbGQgMCkgIC0tPgo8c3ZnIHZlcnNpb249IjEuMSIgaWQ9IkxheWVyXzEiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiIHg9IjBweCIgeT0iMHB4IgoJIHZpZXdCb3g9IjM4MCA4NTAgMTM0MCAzNTAiIHN0eWxlPSJlbmFibGUtYmFja2dyb3VuZDpuZXcgMCAwIDIwMDAgMjAwMDsiIHhtbDpzcGFjZT0icHJlc2VydmUiPgo8c3R5bGUgdHlwZT0idGV4dC9jc3MiPgoJLnN0MHtmaWxsOiMyODI4NUI7fQoJLnN0MXtmaWxsOiMyODI4NUI7fQoJLnN0MntmaWxsOiNDMDI4MkU7fQoJLnN0M3tmaWxsOiMyODI4NUI7fQo8L3N0eWxlPgoKPGc+Cgk8Zz4KCQk8Zz4KCQkJPGc+CgkJCQk8Zz4KCQkJCQk8Zz4KCQkJCQkJPHBhdGggY2xhc3M9InN0MiIgZD0iTTUzNS45OCwxMDI5LjkydjIuMjRsLTAuODIsMS4xN3YwLjA0bC0wLjQzLDAuNmMtMy45NCw1LjcyLTguNiwxMC40OC0xMy44NiwxNC4xOHYwLjA0CgkJCQkJCQljLTIuNTksMS44MS01LjMzLDMuNDEtOC4yNCw0Ljc2Yy02LjE4LDIuODgtMTMuMDQsNC41NS0yMC40Myw0Ljk3Yy0xLjMxLDAuMTEtMi42NiwwLjE0LTQuMDIsMC4xNAoJCQkJCQkJYy0zLjcsMC03LjMyLTAuMzItMTAuNzctMC45MmMtMjcuNDMtNC42NS00Ni4zNy0yNy4yMi00Ni4zNy01Ny4xYzAtMzMuNjEsMjMuOTEtNTguMDMsNTYuODUtNTguMDMKCQkJCQkJCWMxMS4xNiwwLDIxLjUzLDIuODgsMzAuMzEsOC4yOGwtNS4xNSwxMy41Yy03LTUuMDUtMTUuNjctNy42OC0yNS4xNi03LjY4Yy0yNS4xOSwwLTQyLjc1LDE4LjA1LTQyLjc1LDQzLjkyCgkJCQkJCQljMCwyMy45MSwxNS4xLDQxLjE4LDM3LjQyLDQzLjYzYzEuODEsMC4yMSwzLjcsMC4zMiw1LjYxLDAuMzJjMy40MSwwLDYuNjQtMC4zMiw5LjctMC45NmMxMC4xNi0yLjA2LDE4LjQ4LTcuNTcsMjQuNzctMTYuMzgKCQkJCQkJCWMwLjE4LTAuMjEsMC4zMi0wLjQzLDAuNS0wLjY4bDQuNTUsMy4xM2wxLjIxLDAuODVMNTM1Ljk4LDEwMjkuOTJ6Ii8+CgkJCQkJPC9nPgoJCQkJCTxwYXRoIGNsYXNzPSJzdDIiIGQ9Ik02MTEuMDIsMTAzNS40NmwtMTguNjItNTIuMzhsLTUuMDUsMTQuMTRsLTcuNSwyMWwtMi4wMyw1LjY1bC01LjA1LDE0LjA3bC05Ljg0LDI3LjYxbC00LjE2LDExLjU4aDEwNy41OQoJCQkJCQlsLTU4LjkxLTE1NC4yOGgtMzAuMTNsLTguNDksMjIuMjhsLTMyLjg3LDg2LjA2bC0wLjgyLDIuMTdsLTE3LjY2LDQ2LjI2bC00LjAyLDEwLjQ4bC0zLjU5LDAuODUKCQkJCQkJYy03LjI4LDEuNzgtMTUuMDcsMi42Ni0yMy4xMywyLjY2Yy0xOS4wNSwwLTM2LjQyLTUuMDUtNTAuOTItMTMuODljLTExLjYyLTcuMTEtMjEuMzktMTYuNjctMjguNzEtMjguMDcKCQkJCQkJYy05LjQyLTE0LjYtMTQuNzUtMzIuMjMtMTQuNzUtNTEuNjNjMC00NS4zLDI5LjMxLTgxLjE5LDcxLjE3LTkxYzcuNDMtMS43NCwxNS4yOC0yLjY2LDIzLjQyLTIuNjYKCQkJCQkJYzYuMzYsMCwxMi41NCwwLjU3LDE4LjQ4LDEuNzFjOS4xMywxLjc0LDE3LjcsNC43NiwyNS40MSw4Ljk5bC01LjA4LDEzLjI5Yy0xMC45OC02LjQ3LTI0LjM4LTkuODgtMzguOC05Ljg4CgkJCQkJCWMtNDYuNjUsMC04MC40OCwzMy40Ny04MC40OCw3OS41NmMwLDI4LjY4LDEzLjA4LDUyLjQ4LDM0LjE4LDY2LjM0YzExLjM0LDcuNDYsMjUuMDIsMTIuMDgsNDAuMjIsMTIuOTcKCQkJCQkJYzEuOTIsMC4xNCwzLjg3LDAuMjEsNS44NiwwLjIxYzUuNjUsMCwxMS4wOS0wLjUsMTYuMjctMS40OWw5LjU5LTI1LjEybDEwLjAyLTI2LjI5bDQzLjk5LTExNS4zOGwwLjk2LTIuNDloNDkuNTcKCQkJCQkJbDY5LjY4LDE4Mi40Nkg1MzguODJsNC4xNi0xMS42Mmw1LjAxLTE0LjA3bDI0LjM4LTY4LjM3bDcuNS0yMWwxMS4yMy0zMS40OGwxLjMxLTMuNjJsMzYuMSwxMDEuNTVsMi40NSw2LjkzaC0zNy40MnYtMTQuMTEKCQkJCQkJSDYxMS4wMnoiLz4KCQkJCQk8cG9seWdvbiBjbGFzcz0ic3QyIiBwb2ludHM9IjcxOSwxMDkxLjI0IDYzNC4xNSwxMDkxLjI0IDYzNC4xNSwxMDc3LjE2IDY5OC41NSwxMDc3LjE2IDYzOS42Myw5MjIuODYgNTg3LjU1LDkyMi44NiAKCQkJCQkJNTg3LjU1LDkwOC43OCA2NDkuMzMsOTA4Ljc4IAkJCQkJIi8+CgkJCQk8L2c+CgkJCTwvZz4KCQk8L2c+Cgk8L2c+Cgk8Zz4KCQk8Zz4KCQkJPHBhdGggY2xhc3M9InN0MyIgZD0iTTc1NS41NSwxMDQyLjQyYy03LjM5LDAtMTMuMjQtMS4zNC0xNy41NC00LjAzYy00LjMtMi43LTcuMzMtNi40Ny05LjEtMTEuMzMKCQkJCWMtMS43Ny00Ljg2LTIuNjUtMTAuNTktMi42NS0xNy4xOHYtMzUuMmMwLTYuNzUsMC44OC0xMi41NiwyLjY1LTE3LjQyYzEuNzctNC44Niw0LjgtOC42Miw5LjEtMTEuMjcKCQkJCWM0LjMtMi42NSwxMC4xNC0zLjk4LDE3LjU0LTMuOThjNy4yMywwLDEyLjg4LDEuMTksMTYuOTQsMy41NmM0LjA2LDIuMzcsNi45Myw1LjY5LDguNjIsOS45NGMxLjY5LDQuMjYsMi41Myw5LjE2LDIuNTMsMTQuNzEKCQkJCXY4LjQ0aC0yMS4wOXYtOS43NmMwLTEuOTMtMC4xLTMuNzgtMC4zLTUuNTRjLTAuMi0xLjc3LTAuNzgtMy4yMy0xLjc1LTQuNGMtMC45Ni0xLjE2LTIuNjEtMS43NS00Ljk0LTEuNzUKCQkJCWMtMi4yNSwwLTMuOTIsMC42LTUsMS44MWMtMS4wOCwxLjItMS43NywyLjcxLTIuMDUsNC41MmMtMC4yOCwxLjgxLTAuNDIsMy43Mi0wLjQyLDUuNzN2NDUuOTNjMCwyLjE3LDAuMTgsNC4xNiwwLjU0LDUuOTcKCQkJCWMwLjM2LDEuODEsMS4wOSwzLjI1LDIuMTcsNC4zNGMxLjA4LDEuMDgsMi42NywxLjYzLDQuNzYsMS42M2MyLjI1LDAsMy44Ni0wLjU4LDQuODItMS43NGMwLjk2LTEuMTcsMS41Ny0yLjY3LDEuODEtNC41MgoJCQkJYzAuMjQtMS44NSwwLjM2LTMuNzMsMC4zNi01LjY2di0xMC4yNWgyMS4wOXY4LjQ0YzAsNS41NC0wLjgyLDEwLjUxLTIuNDcsMTQuODljLTEuNjUsNC4zOC00LjUsNy44NC04LjU2LDEwLjM3CgkJCQlDNzY4LjU0LDEwNDEuMTUsNzYyLjg2LDEwNDIuNDIsNzU1LjU1LDEwNDIuNDJ6Ii8+CgkJCTxwYXRoIGNsYXNzPSJzdDMiIGQ9Ik03OTUuNTcsMTA0MC45N3YtOTcuNjNoMjEuNTh2OTcuNjNINzk1LjU3eiIvPgoJCQk8cGF0aCBjbGFzcz0ic3QzIiBkPSJNODQwLjUyLDEwNDAuOTd2LTgxLjZoLTE0Ljcxdi0xNi4wM2g1MC45OXYxNi4wM2gtMTQuNTl2ODEuNkg4NDAuNTJ6Ii8+CgkJCTxwYXRoIGNsYXNzPSJzdDMiIGQ9Ik04OTcuNjYsMTA0MC45N3YtMzkuOWwtMTguNTYtNTcuNzRoMjAuMzdsOS4yOCwzMC44NWw4LjMyLTMwLjg1aDE5LjUzbC0xOC4yLDU3Ljc0djM5LjlIODk3LjY2eiIvPgoJCQk8cGF0aCBjbGFzcz0ic3QzIiBkPSJNOTcwLjk0LDEwNDAuOTdsMTguNDQtOTcuNjNoMjQuNTlsMTguMiw5Ny42M2gtMTkuODlsLTMuMjUtMjAuNjFoLTE0LjM0bC0zLjM4LDIwLjYxSDk3MC45NHoKCQkJCSBNOTk2LjYyLDEwMDcuNDZoMTAuMzdsLTUuMTgtMzguMDlMOTk2LjYyLDEwMDcuNDZ6Ii8+CgkJCTxwYXRoIGNsYXNzPSJzdDMiIGQ9Ik0xMDQyLjA2LDEwNDAuOTd2LTk3LjYzaDMyLjc5YzUuODcsMCwxMC42OSwxLjExLDE0LjQ3LDMuMzFjMy43OCwyLjIxLDYuNTksNS40Myw4LjQ0LDkuNjQKCQkJCWMxLjg1LDQuMjIsMi43Nyw5LjM0LDIuNzcsMTUuMzdjMCw3LjU2LTEuMjUsMTMuMzItMy43NCwxNy4zYy0yLjQ5LDMuOTgtNS44Nyw2LjczLTEwLjEyLDguMjZjLTQuMjYsMS41My05LjA0LDIuMjktMTQuMzQsMi4yOQoJCQkJaC04LjY4djQxLjQ2SDEwNDIuMDZ6IE0xMDYzLjY0LDk4NC40NGg3LjIzYzIuNjUsMCw0LjY2LTAuNDgsNi4wMy0xLjQ1YzEuMzctMC45NiwyLjI3LTIuNDEsMi43MS00LjM0CgkJCQljMC40NC0xLjkzLDAuNjYtNC4zOCwwLjY2LTcuMzVjMC0yLjQ5LTAuMTgtNC42OC0wLjU0LTYuNTdjLTAuMzYtMS44OS0xLjIyLTMuNC0yLjU5LTQuNTJjLTEuMzctMS4xMi0zLjUtMS42OS02LjM5LTEuNjloLTcuMTEKCQkJCVY5ODQuNDR6Ii8+CgkJCTxwYXRoIGNsYXNzPSJzdDMiIGQ9Ik0xMTAwLjUyLDEwNDAuOTdsMTguNDQtOTcuNjNoMjQuNTlsMTguMiw5Ny42M2gtMTkuODlsLTMuMjUtMjAuNjFoLTE0LjM0bC0zLjM4LDIwLjYxSDExMDAuNTJ6CgkJCQkgTTExMjYuMTksMTAwNy40NmgxMC4zN2wtNS4xOC0zOC4wOUwxMTI2LjE5LDEwMDcuNDZ6Ii8+CgkJCTxwYXRoIGNsYXNzPSJzdDMiIGQ9Ik0xMTcxLjY0LDEwNDAuOTd2LTk3LjYzaDI2Ljg4YzYuNTksMCwxMi4zLDAuNzIsMTcuMTIsMi4xN2M0LjgyLDEuNDUsOC41OCw0LjA0LDExLjI3LDcuNzgKCQkJCWMyLjY5LDMuNzMsNC4wNCw5LjAyLDQuMDQsMTUuODVjMCw0LjAyLTAuMzIsNy41OS0wLjk2LDEwLjczYy0wLjY0LDMuMTMtMS44Myw1Ljg0LTMuNTYsOC4xM2MtMS43MywyLjI5LTQuMiw0LjItNy40MSw1LjczCgkJCQlsMTMuMzgsNDcuMjVoLTIyLjNsLTEwLjczLTQzLjc1aC02LjE1djQzLjc1SDExNzEuNjR6IE0xMTkzLjIxLDk4NC44aDYuMDNjMy4wNSwwLDUuNDItMC41NCw3LjExLTEuNjMKCQkJCWMxLjY5LTEuMDgsMi44Ny0yLjY1LDMuNTYtNC43czEuMDItNC41MiwxLjAyLTcuNDFjMC00LjE4LTAuNzYtNy40My0yLjI5LTkuNzZjLTEuNTMtMi4zMy00LjM0LTMuNS04LjQ0LTMuNWgtNi45OVY5ODQuOHoiLz4KCQkJPHBhdGggY2xhc3M9InN0MyIgZD0iTTEyNTEuNzksMTA0MC45N3YtODEuNmgtMTQuNzF2LTE2LjAzaDUwLjk5djE2LjAzaC0xNC41OXY4MS42SDEyNTEuNzl6Ii8+CgkJCTxwYXRoIGNsYXNzPSJzdDMiIGQ9Ik0xMjk1Ljc5LDEwNDAuOTdsMS42OS05Ny42M2gyMy4xNGwxMC43Myw1Ni43N2wxMS41Ny01Ni43N2gyMi4zbDEuNjksOTcuNjNoLTE1LjMxbC0xLjgxLTY0Ljk3CgkJCQlsLTExLjMzLDY0Ljk3aC0xMy42MmwtMTIuMDUtNjUuNDVsLTEuNDQsNjUuNDVIMTI5NS43OXoiLz4KCQkJPHBhdGggY2xhc3M9InN0MyIgZD0iTTEzODEsMTA0MC45N3YtOTcuNjNoNDMuODh2MTQuNzFoLTIyLjN2MjQuMjNoMTd2MTQuOTVoLTE3djI5LjE3aDIyLjU0djE0LjU5SDEzODF6Ii8+CgkJCTxwYXRoIGNsYXNzPSJzdDMiIGQ9Ik0xNDM0Ljg4LDEwNDAuOTd2LTk3LjYzaDE1LjE5bDIwLjAxLDQ3LjAxdi00Ny4wMWgxNy44NHY5Ny42M2gtMTQuNTlsLTIwLjAxLTUwLjYydjUwLjYySDE0MzQuODh6Ii8+CgkJCTxwYXRoIGNsYXNzPSJzdDMiIGQ9Ik0xNTExLjMsMTA0MC45N3YtODEuNmgtMTQuNzF2LTE2LjAzaDUwLjk5djE2LjAzSDE1MzN2ODEuNkgxNTExLjN6Ii8+CgkJCTxwYXRoIGNsYXNzPSJzdDMiIGQ9Ik0xNTgyLjA2LDEwNDIuNDJjLTYuMTEsMC0xMS4yMS0xLjA4LTE1LjMxLTMuMjVjLTQuMS0yLjE3LTcuMTktNS41Mi05LjI4LTEwLjA2cy0zLjI1LTEwLjQyLTMuNDktMTcuNjYKCQkJCWwxOC40NC0yLjc3YzAuMDgsNC4xOCwwLjQ2LDcuNTUsMS4xNSwxMC4xMmMwLjY4LDIuNTcsMS42NSw0LjQyLDIuODksNS41NGMxLjI0LDEuMTMsMi43NSwxLjY5LDQuNTIsMS42OQoJCQkJYzIuMjUsMCwzLjcxLTAuNzYsNC40LTIuMjljMC42OC0xLjUyLDEuMDItMy4xMywxLjAyLTQuODJjMC00LjAyLTAuOTYtNy40MS0yLjg5LTEwLjE4Yy0xLjkzLTIuNzctNC41NC01LjU3LTcuODMtOC4zOAoJCQkJbC04LjQ0LTcuMzVjLTMuNy0zLjE0LTYuODEtNi42OS05LjM0LTEwLjY3Yy0yLjUzLTMuOTgtMy44LTguOS0zLjgtMTQuNzdjMC04LjI4LDIuNDUtMTQuNiw3LjM1LTE4Ljk5CgkJCQljNC45LTQuMzgsMTEuNTctNi41NywyMC4wMS02LjU3YzUuMjIsMCw5LjQyLDAuODksMTIuNiwyLjY2YzMuMTcsMS43Nyw1LjU4LDQuMDgsNy4yMyw2LjkzYzEuNjUsMi44NSwyLjc3LDUuODcsMy4zOCw5LjA0CgkJCQlzMC45NCw2LjIxLDEuMDIsOS4xbC0xOC41NiwyLjI5Yy0wLjA4LTIuODktMC4yNi01LjQtMC41NC03LjU0Yy0wLjI4LTIuMTMtMC44Ny0zLjc4LTEuNzUtNC45NGMtMC44OS0xLjE3LTIuMjUtMS43NS00LjEtMS43NQoJCQkJYy0yLjAxLDAtMy40OCwwLjg0LTQuNCwyLjUzYy0wLjkyLDEuNjktMS4zOSwzLjM3LTEuMzksNS4wNmMwLDMuNjIsMC44Niw2LjU3LDIuNTksOC44NmMxLjczLDIuMjksNCw0LjY4LDYuODEsNy4xN2w4LjA4LDcuMTEKCQkJCWM0LjI2LDMuNjIsNy44NSw3LjcyLDEwLjc5LDEyLjNjMi45Myw0LjU4LDQuNCwxMC4yNCw0LjQsMTdjMCw0LjU4LTEuMDUsOC43NC0zLjEzLDEyLjQ4Yy0yLjA5LDMuNzMtNS4wNCw2LjY5LTguODYsOC44NgoJCQkJQzE1OTEuOCwxMDQxLjMzLDE1ODcuMjgsMTA0Mi40MiwxNTgyLjA2LDEwNDIuNDJ6Ii8+CgkJPC9nPgoJCTxnPgoJCQk8cGF0aCBjbGFzcz0ic3QyIiBkPSJNMTEwMC41MiwxMDkwLjgxdi0yOWg3LjUyYzEuOTYsMCwzLjYzLDAuMjIsNS4wMywwLjY2YzEuNCwwLjQ0LDIuNDcsMS4yMiwzLjIyLDIuMzQKCQkJCWMwLjc1LDEuMTIsMS4xMywyLjY3LDEuMTMsNC42NWMwLDEuMi0wLjEsMi4yNS0wLjMsMy4xN2MtMC4yLDAuOTItMC41NiwxLjcyLTEuMDgsMi40Yy0wLjUxLDAuNjgtMS4yMywxLjIzLTIuMTcsMS42MwoJCQkJbDQuMDEsMTQuMTRoLTYuMDVsLTMuMzMtMTMuMTRoLTIuMDh2MTMuMTRIMTEwMC41MnogTTExMDYuNDMsMTA3NC4xN2gxLjcyYzAuOTUsMCwxLjcxLTAuMTUsMi4yNS0wLjQ3CgkJCQljMC41NS0wLjMxLDAuOTQtMC43OCwxLjE3LTEuNDFjMC4yMi0wLjYzLDAuMzQtMS40MSwwLjM0LTIuMzRjMC0xLjM0LTAuMjQtMi4zNi0wLjczLTMuMDZjLTAuNDktMC43LTEuNC0xLjA1LTIuNzQtMS4wNWgtMgoJCQkJVjEwNzQuMTd6Ii8+CgkJCTxwYXRoIGNsYXNzPSJzdDIiIGQ9Ik0xMTI3LjQ4LDEwOTAuODF2LTI5aDEyLjY0djQuMDhoLTYuNzN2Ny43aDUuMTl2NC4xMmgtNS4xOXY5LjA5aDYuOHY0LjAxSDExMjcuNDh6Ii8+CgkJCTxwYXRoIGNsYXNzPSJzdDIiIGQ9Ik0xMTQ3LjgyLDEwOTAuODFsNS42Mi0yOWg2LjU1bDUuNTgsMjloLTUuNDhsLTEuMDQtNi4zN2gtNC41OGwtMS4xMSw2LjM3SDExNDcuODJ6IE0xMTU1LjAxLDEwODAuODNoMy40NwoJCQkJbC0xLjc1LTExLjcxTDExNTUuMDEsMTA4MC44M3oiLz4KCQkJPHBhdGggY2xhc3M9InN0MiIgZD0iTTExNzQuNiwxMDkwLjgxdi0yOWg1LjkxdjI0Ljk5aDYuOHY0LjAxSDExNzQuNnoiLz4KCQkJPHBhdGggY2xhc3M9InN0MiIgZD0iTTEyMTEuMjMsMTA5MC44MXYtMjloMTIuNjR2NC4wOGgtNi43M3Y3LjdoNS4xOXY0LjEyaC01LjE5djkuMDloNi44djQuMDFIMTIxMS4yM3oiLz4KCQkJPHBhdGggY2xhc3M9InN0MiIgZD0iTTEyNDAuNTEsMTA5MS4yMWMtMS43OSwwLTMuMjgtMC4zMy00LjQ4LTAuOTlzLTIuMS0xLjY1LTIuNy0yLjk3cy0wLjk2LTMuMDItMS4wNi01LjA3bDUuMDgtMC44NgoJCQkJYzAuMDUsMS4xOSwwLjE3LDIuMTksMC4zOCwyLjk5YzAuMiwwLjgsMC41MSwxLjM5LDAuOTMsMS43OXMwLjk0LDAuNTksMS41NiwwLjU5YzAuNzYsMCwxLjI4LTAuMjQsMS41Ni0wLjcyCgkJCQljMC4yNy0wLjQ4LDAuNDEtMS4wMiwwLjQxLTEuNjVjMC0xLjIyLTAuMjktMi4yNC0wLjg4LTMuMDZjLTAuNTktMC44Mi0xLjM2LTEuNjUtMi4zMS0yLjQ5bC0zLjAxLTIuNjEKCQkJCWMtMS4wNy0wLjkxLTEuOTUtMS45NC0yLjYzLTMuMDhjLTAuNjgtMS4xNC0xLjAyLTIuNTUtMS4wMi00LjIzYzAtMi4zOSwwLjctNC4yMiwyLjA5LTUuNDlzMy4zMS0xLjkyLDUuNzUtMS45MgoJCQkJYzEuNDYsMCwyLjY1LDAuMjQsMy41OCwwLjcyYzAuOTMsMC40OCwxLjY1LDEuMTEsMi4xNywxLjkyYzAuNTEsMC44LDAuODcsMS42NywxLjA4LDIuNjFjMC4yLDAuOTQsMC4zMywxLjg4LDAuMzgsMi44MQoJCQkJbC01LjA1LDAuNzVjLTAuMDUtMC44OC0wLjEzLTEuNjYtMC4yMy0yLjMzYy0wLjExLTAuNjctMC4zMi0xLjItMC42NC0xLjU4Yy0wLjMyLTAuMzgtMC44MS0wLjU3LTEuNDUtMC41NwoJCQkJYy0wLjY5LDAtMS4yMSwwLjI2LTEuNTQsMC43N2MtMC4zMywwLjUxLTAuNSwxLjA4LTAuNSwxLjdjMCwxLjAzLDAuMjMsMS44NywwLjcsMi41MnMxLjEsMS4zNSwxLjkyLDIuMDZsMi45NCwyLjU4CgkJCQljMS4yMiwxLjA1LDIuMjYsMi4yNSwzLjEzLDMuNmMwLjg3LDEuMzUsMS4zMSwzLjAxLDEuMzEsNC45OWMwLDEuMzYtMC4zMSwyLjU5LTAuOTMsMy42OWMtMC42MiwxLjEtMS40OSwxLjk2LTIuNiwyLjU4CgkJCQlDMTI0My4zMiwxMDkwLjksMTI0Mi4wMiwxMDkxLjIxLDEyNDAuNTEsMTA5MS4yMXoiLz4KCQkJPHBhdGggY2xhc3M9InN0MiIgZD0iTTEyNTkuODgsMTA5MC44MXYtMjQuNmgtNC40N3YtNC40MWgxNC44MnY0LjQxaC00LjQxdjI0LjZIMTI1OS44OHoiLz4KCQkJPHBhdGggY2xhc3M9InN0MiIgZD0iTTEyNzYuNDYsMTA5MC44MWw1LjYyLTI5aDYuNTVsNS41OCwyOWgtNS40OGwtMS4wNC02LjM3aC00LjU4bC0xLjExLDYuMzdIMTI3Ni40NnogTTEyODMuNjYsMTA4MC44M2gzLjQ3CgkJCQlsLTEuNzUtMTEuNzFMMTI4My42NiwxMDgwLjgzeiIvPgoJCQk8cGF0aCBjbGFzcz0ic3QyIiBkPSJNMTMwNC41LDEwOTAuODF2LTI0LjZoLTQuNDd2LTQuNDFoMTQuODJ2NC40MWgtNC40MXYyNC42SDEzMDQuNXoiLz4KCQkJPHBhdGggY2xhc3M9InN0MiIgZD0iTTEzMjMuNTQsMTA5MC44MXYtMjloMTIuNjR2NC4wOGgtNi43M3Y3LjdoNS4xOXY0LjEyaC01LjE5djkuMDloNi44djQuMDFIMTMyMy41NHoiLz4KCQkJPHBhdGggY2xhc3M9InN0MiIgZD0iTTEzNjAuMjQsMTA5MC44MWwwLjUtMjloNi4yN2wzLjU4LDE4LjNsMy44My0xOC4zaDYuMDVsMC41LDI5aC00LjNsLTAuNDYtMTkuNjZsLTMuNjksMTkuNjZoLTMuNjkKCQkJCWwtMy44Ny0xOS44bC0wLjM5LDE5LjhIMTM2MC4yNHoiLz4KCQkJPHBhdGggY2xhc3M9InN0MiIgZD0iTTEzODkuODksMTA5MC44MWw1LjYyLTI5aDYuNTVsNS41OCwyOWgtNS40OGwtMS4wNC02LjM3aC00LjU4bC0xLjExLDYuMzdIMTM4OS44OXogTTEzOTcuMDgsMTA4MC44M2gzLjQ3CgkJCQlsLTEuNzUtMTEuNzFMMTM5Ny4wOCwxMDgwLjgzeiIvPgoJCQk8cGF0aCBjbGFzcz0ic3QyIiBkPSJNMTQxNi42NywxMDkwLjgxdi0yOWg0LjEybDYuNDQsMTUuMTF2LTE1LjExaDQuODd2MjloLTMuOTRsLTYuNDQtMTYuMDR2MTYuMDRIMTQxNi42N3oiLz4KCQkJPHBhdGggY2xhc3M9InN0MiIgZD0iTTE0NDEuMTYsMTA5MC44MWw1LjYyLTI5aDYuNTVsNS41OCwyOWgtNS40OGwtMS4wNC02LjM3aC00LjU4bC0xLjExLDYuMzdIMTQ0MS4xNnogTTE0NDguMzYsMTA4MC44M2gzLjQ3CgkJCQlsLTEuNzUtMTEuNzFMMTQ0OC4zNiwxMDgwLjgzeiIvPgoJCQk8cGF0aCBjbGFzcz0ic3QyIiBkPSJNMTQ3NC45NiwxMDkxLjI0Yy0xLjk2LDAtMy41MS0wLjQxLTQuNjUtMS4yM2MtMS4xNS0wLjgyLTEuOTYtMS45OS0yLjQ1LTMuNTEKCQkJCWMtMC40OS0xLjUxLTAuNzMtMy4yNy0wLjczLTUuMjh2LTkuNzFjMC0yLjA3LDAuMjUtMy44NywwLjc1LTUuMzdjMC41LTEuNSwxLjM4LTIuNjYsMi42My0zLjQ3YzEuMjUtMC44MSwyLjk1LTEuMjIsNS4xLTEuMjIKCQkJCWMyLjA4LDAsMy43MiwwLjM0LDQuOTIsMS4wNGMxLjIsMC42OSwyLjA3LDEuNjcsMi41OSwyLjk0czAuNzksMi43NywwLjc5LDQuNTF2MS42OGgtNS43NnYtMi4wNGMwLTAuNzYtMC4wNS0xLjQ0LTAuMTQtMi4wMgoJCQkJYy0wLjEtMC41OC0wLjMyLTEuMDQtMC42Ni0xLjM4Yy0wLjM1LTAuMzMtMC45LTAuNS0xLjY2LTAuNWMtMC43OSwwLTEuMzYsMC4yLTEuNzIsMC42MWMtMC4zNiwwLjQtMC41OSwwLjkzLTAuNjgsMS41NgoJCQkJYy0wLjEsMC42My0wLjE0LDEuMzEtMC4xNCwyLjAydjEyLjg2YzAsMC44MSwwLjA3LDEuNTQsMC4yMSwyLjE4YzAuMTQsMC42NSwwLjQxLDEuMTUsMC44MSwxLjVjMC4zOSwwLjM2LDAuOTYsMC41NCwxLjcsMC41NAoJCQkJYzAuNzQsMCwxLjMxLTAuMTksMS43Mi0wLjU3YzAuNDEtMC4zOCwwLjY5LTAuOSwwLjg0LTEuNTZjMC4xNS0wLjY2LDAuMjMtMS40LDAuMjMtMi4yNHYtMy4wOGgtMi44M3YtMy41OGg4LjE3djE0LjloLTMuODcKCQkJCWwtMC4zNi0yLjYxYy0wLjM4LDAuODgtMC45NiwxLjYxLTEuNzIsMi4xOUMxNDc3LjI3LDEwOTAuOTYsMTQ3Ni4yNSwxMDkxLjI0LDE0NzQuOTYsMTA5MS4yNHoiLz4KCQkJPHBhdGggY2xhc3M9InN0MiIgZD0iTTE0OTQuMTEsMTA5MC44MXYtMjloMTIuNjR2NC4wOGgtNi43M3Y3LjdoNS4xOXY0LjEyaC01LjE5djkuMDloNi44djQuMDFIMTQ5NC4xMXoiLz4KCQkJPHBhdGggY2xhc3M9InN0MiIgZD0iTTE1MTUuNzcsMTA5MC44MWwwLjUtMjloNi4yN2wzLjU4LDE4LjNsMy44My0xOC4zaDYuMDVsMC41LDI5aC00LjNsLTAuNDYtMTkuNjZsLTMuNjksMTkuNjZoLTMuNjkKCQkJCWwtMy44Ny0xOS44bC0wLjM5LDE5LjhIMTUxNS43N3oiLz4KCQkJPHBhdGggY2xhc3M9InN0MiIgZD0iTTE1NDYuODUsMTA5MC44MXYtMjloMTIuNjR2NC4wOGgtNi43M3Y3LjdoNS4xOXY0LjEyaC01LjE5djkuMDloNi44djQuMDFIMTU0Ni44NXoiLz4KCQkJPHBhdGggY2xhc3M9InN0MiIgZD0iTTE1NjguNjIsMTA5MC44MXYtMjloNC4xMmw2LjQ0LDE1LjExdi0xNS4xMWg0Ljg3djI5aC0zLjk0bC02LjQ0LTE2LjA0djE2LjA0SDE1NjguNjJ6Ii8+CgkJCTxwYXRoIGNsYXNzPSJzdDIiIGQ9Ik0xNTk3LjI2LDEwOTAuODF2LTI0LjZoLTQuNDd2LTQuNDFoMTQuODJ2NC40MWgtNC40MXYyNC42SDE1OTcuMjZ6Ii8+CgkJPC9nPgoJPC9nPgo8L2c+Cjwvc3ZnPgo=";
+  window.__CA_LOGO_FULL = CA_LOGO_FULL;
+
+  var COL_RED = '#C0392B';
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function loadFirma() {
+    var keys = ['cache_pm_firma', 'pm_firma_v2', 'pm_firma'];
+    for (var i = 0; i < keys.length; i++) {
+      try {
+        var s = localStorage.getItem(keys[i]);
+        if (s) {
+          var obj = JSON.parse(s);
+          if (obj && (obj.firmaName || obj.firmaPhone)) return obj;
+        }
+      } catch (e) {}
+    }
+    return {
+      firmaName: 'City Apartments GmbH',
+      firmaAdresse: 'Alberich Zwyssigstrasse 81',
+      firmaPlz: '5430',
+      firmaStadt: 'Wettingen',
+      firmaPhone: '+41 79 555 95 15',
+      firmaMail: 'info@cityapartments.ch',
+      firmaWeb: 'www.cityapartments.ch',
+      iban: 'CH36 0076 1638 9224 1200 4'
+    };
+  }
+
+  function toSwissDate(s) {
+    if (!s) return '';
+    var str = String(s).trim();
+    var m = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return m[3] + '.' + m[2] + '.' + m[1];
+    return str;
+  }
+
+  function heute() {
+    var d = new Date();
+    return String(d.getDate()).padStart(2, '0') + '.' +
+      String(d.getMonth() + 1).padStart(2, '0') + '.' + d.getFullYear();
+  }
+
+  /**
+   * Build a complete print-ready HTML document matching the invoice layout EXACTLY.
+   * 
+   * opts:
+   *   title:       string  — document title (browser tab)
+   *   recipient:   { name, addressLines: ['line1', 'line2', ...] }
+   *   metaRows:    [{ label: 'Quittungs-Nr.:', value: '2026-001' }, ...]   (optional, like Rechnungsdatum etc.)
+   *   docTitle:    string  — big title (like "Rechnung 2026-001")
+   *   subtitle:    string  — small subtitle below title (optional, e.g. "Liegenschaft: ...")
+   *   bodyHTML:    string  — main HTML content
+   *   showSig:     boolean — show signature row at bottom
+   */
+  function buildLetterheadHTML(opts) {
+    var f = loadFirma();
+    var meta = opts.metaRows || [];
+    var recipient = opts.recipient || { name: '', addressLines: [] };
+    var addressLines = recipient.addressLines || [];
+
+    var metaHTML = meta.map(function (m) {
+      return '<div style="display:flex;gap:14px;margin-bottom:3px;line-height:1.6">' +
+        '<div style="width:135px;color:#1a1a1a;' + (m.bold ? 'font-weight:700;' : '') + '">' + esc(m.label) + '</div>' +
+        '<div style="' + (m.bold ? 'font-weight:700;' : '') + '">' + esc(m.value) + '</div>' +
+        '</div>';
+    }).join('');
+
+    var recipientHTML = '<div style="border-top:0.5px solid #999;padding-top:5px;margin-bottom:5px;font-size:9px;color:#666">' +
+      esc(f.firmaName || 'City Apartments GmbH') + '</div>' +
+      '<div style="line-height:1.65">' +
+      '<div>' + esc(recipient.name) + '</div>' +
+      addressLines.map(function (l) { return '<div>' + esc(l) + '</div>'; }).join('') +
+      '</div>';
+
+    var sigHTML = opts.showSig ? (
+      '<div style="margin-top:14mm;display:flex;justify-content:space-between;gap:14mm;font-size:10px">' +
+      '<div style="flex:1;border-top:1px solid #1a1a1a;padding-top:3mm">' +
+      '<div>Ort, Datum</div><div style="font-weight:500">' + esc((f.firmaStadt || '') + ', ' + heute()) + '</div>' +
+      '</div>' +
+      '<div style="flex:1;border-top:1px solid #1a1a1a;padding-top:3mm">' +
+      '<div>' + esc(f.firmaName || '') + '</div><div style="color:#666">Vermieter</div>' +
+      '</div></div>'
+    ) : '';
+
+    return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><title>' + esc(opts.title || 'Brief') + '</title>' +
+      '<style>@page{margin:0;size:A4}*{box-sizing:border-box;margin:0;padding:0}' +
+      'body{print-color-adjust:exact;-webkit-print-color-adjust:exact;font-family:\'Helvetica Neue\',Arial,sans-serif;font-size:10px;color:#1a1a1a;line-height:1.55}' +
+      'p{margin-bottom:3mm}' +
+      'table{width:100%;border-collapse:collapse;margin:4mm 0;font-size:11px}' +
+      'th{text-align:left;padding:8px 6px;border-bottom:2px solid #1a1a1a;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:0.06em}' +
+      'td{padding:7px 6px;border-bottom:0.5px solid #eee}' +
+      '</style></head><body>' +
+      '<div style="display:flex;width:794px;min-height:1123px;background:#fff">' +
+
+      // Left red icon sidebar
+      '<div style="width:40px;background:' + COL_RED + ';flex-shrink:0;display:flex;flex-direction:column;align-items:center;padding-top:32px;gap:18px">' +
+      '<span style="color:#fff;font-size:12px">☎</span>' +
+      '<span style="color:#fff;font-size:12px">✉</span>' +
+      '<span style="color:#fff;font-size:12px">⊕</span>' +
+      '<span style="color:#fff;font-size:12px">◎</span>' +
+      '</div>' +
+
+      // Main content
+      '<div style="flex:1;padding:28px 36px 0 24px;display:flex;flex-direction:column">' +
+
+      // Header: red box+contact LEFT, BIG LOGO RIGHT
+      '<div style="display:flex;justify-content:space-between;margin-bottom:28px">' +
+
+      // Left: red box with white lines + contact info
+      '<div style="display:flex;gap:0;align-items:stretch;">' +
+      '<div style="background:' + COL_RED + ';padding:6px 8px;display:flex;flex-direction:column;justify-content:center;gap:5px;margin-right:12px;flex-shrink:0;">' +
+      '<div style="width:30px;height:2.5px;background:#fff;"></div>' +
+      '<div style="width:30px;height:2.5px;background:#fff;"></div>' +
+      '<div style="width:30px;height:2.5px;background:#fff;"></div>' +
+      '<div style="width:30px;height:2.5px;background:#fff;"></div>' +
+      '</div>' +
+      '<div style="font-size:9px;color:#666;line-height:2">' +
+      '<div>T: ' + esc(f.firmaPhone || '') + '</div>' +
+      '<div>Mail: ' + esc(f.firmaMail || '') + '</div>' +
+      '<div>' + esc(f.firmaWeb || '') + '</div>' +
+      '<div>' + esc(f.firmaAdresse || '') + ' – CH-' + esc(f.firmaPlz || '') + ' ' + esc(f.firmaStadt || '') + '</div>' +
+      '</div>' +
+      '</div>' +
+
+      // Right: BIG LOGO (same as invoice)
+      '<img src="' + CA_LOGO_FULL + '" style="height:55px;width:auto;display:block" alt="City Apartments"/>' +
+
+      '</div>' + // /header
+
+      // Meta rows + Recipient (two columns like invoice)
+      '<div style="display:flex;justify-content:space-between;gap:30px;margin-bottom:24px">' +
+      '<div style="font-size:10px;flex:1">' + metaHTML + '</div>' +
+      '<div style="font-size:10px;width:280px">' + recipientHTML + '</div>' +
+      '</div>' +
+
+      // Big title (like "Rechnung 2026-001")
+      (opts.docTitle ? '<h1 style="font-size:26px;font-weight:800;letter-spacing:-0.02em;margin:8mm 0 4mm;color:#1a1a1a">' + esc(opts.docTitle) + '</h1>' : '') +
+
+      // Subtitle (like "Liegenschaft:" / "Betreff:")
+      (opts.subtitle ? '<div style="font-size:10px;line-height:1.7;margin-bottom:6mm">' + opts.subtitle + '</div>' : '') +
+
+      // Body
+      '<div style="font-size:10px;line-height:1.65">' + (opts.bodyHTML || '') + '</div>' +
+
+      // Signature
+      sigHTML +
+
+      '</div>' + // /main
+      '</div>' + // /root flex
+      '<scr' + 'ipt>window.onload=function(){setTimeout(function(){window.print()},400)}</scr' + 'ipt>' +
+      '</body></html>';
+  }
+
+  // Expose globally
+  window.__CA_LETTERHEAD = {
+    build: buildLetterheadHTML,
+    loadFirma: loadFirma,
+    toSwissDate: toSwissDate,
+    heute: heute,
+    esc: esc,
+    LOGO: CA_LOGO_FULL,
+    COL_RED: COL_RED
+  };
+})();
+
+</script>
 <script id="mv-new-pdf-module">
 /* Mietvertrag PDF — eigenständiger Tab, unabhängig von Ar() */
 (function () {
@@ -3750,110 +3929,47 @@ react-dom/cjs/react-dom-client.production.js:
   }
 
   function buildPrintHTML(d) {
-    var f = d.firma;
+    // Use shared letterhead template to match invoice EXACTLY
+    if (!window.__CA_LETTERHEAD) {
+      console.error('[quittung] letterhead module not loaded');
+      return '<html><body>Letterhead module fehlt</body></html>';
+    }
+    var L = window.__CA_LETTERHEAD;
     var rows = d.monthsList.map(function (m) {
       return '<tr>' +
-        '<td style="padding:8px 10px;border-bottom:1px solid #e5e5e5;">' + esc(MONATE[m.month] + ' ' + m.year) + '</td>' +
-        '<td style="padding:8px 10px;border-bottom:1px solid #e5e5e5;text-align:right;">CHF ' + fmt(d.rent) + '</td>' +
+        '<td>' + L.esc(MONATE[m.month] + ' ' + m.year) + '</td>' +
+        '<td style="text-align:right">CHF ' + fmt(d.rent) + '</td>' +
         '</tr>';
     }).join('');
-
-    // Logo (SVG base64) — fetch from window if exported, else empty
-    var logoSrc = window.__CA_LOGO_SRC || '';
-
-    return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><title>Mietzinsquittung</title>' +
-      '<style>' +
-      '@page{margin:0;size:A4}' +
-      '*{box-sizing:border-box;margin:0;padding:0}' +
-      'body{print-color-adjust:exact;-webkit-print-color-adjust:exact;font-family:"Helvetica Neue",Arial,sans-serif;font-size:10px;color:#1a1a1a}' +
-      'table{width:100%;border-collapse:collapse;margin:4mm 0 6mm;font-size:11px}' +
-      'th{text-align:left;padding:8px 10px;border-bottom:2px solid #1a1a1a;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:0.06em}' +
-      '.total-row{border-top:2px solid #1a1a1a;font-weight:700}' +
-      '.total-row td{padding:10px;font-size:12px}' +
-      '.in-worten{font-style:italic;color:#666;margin-bottom:4mm}' +
-      'p{margin-bottom:3mm;line-height:1.65}' +
-      '.sig{margin-top:14mm;display:flex;justify-content:space-between;gap:14mm}' +
-      '.sig-col{flex:1;border-top:1px solid #1a1a1a;padding-top:3mm;font-size:10px}' +
-      '</style></head><body>' +
-
-      // === Root container matching invoice layout ===
-      '<div style="display:flex;width:794px;min-height:1123px;background:#fff">' +
-
-      // Left red icon sidebar (same as invoice)
-      '<div style="width:40px;background:#C0392B;flex-shrink:0;display:flex;flex-direction:column;align-items:center;padding-top:32px;gap:18px">' +
-      '<span style="color:#fff;font-size:12px">☎</span>' +
-      '<span style="color:#fff;font-size:12px">✉</span>' +
-      '<span style="color:#fff;font-size:12px">⊕</span>' +
-      '<span style="color:#fff;font-size:12px">◎</span>' +
-      '</div>' +
-
-      // Main content
-      '<div style="flex:1;padding:28px 36px 0 24px;display:flex;flex-direction:column">' +
-
-      // Header row: contact block + logo
-      '<div style="display:flex;justify-content:space-between;margin-bottom:28px">' +
-      '<div style="display:flex;gap:0;align-items:stretch;">' +
-      '<div style="background:#C0392B;padding:6px 8px;display:flex;flex-direction:column;justify-content:center;gap:5px;margin-right:12px;flex-shrink:0;">' +
-      '<div style="width:30px;height:2.5px;background:#fff;"></div>'.repeat(4) +
-      '</div>' +
-      '<div style="font-size:9px;color:#666;line-height:2">' +
-      '<div>T: ' + esc(f.firmaPhone || '') + '</div>' +
-      '<div>Mail: ' + esc(f.firmaMail || '') + '</div>' +
-      '<div>' + esc(f.firmaWeb || '') + '</div>' +
-      '<div>' + esc(f.firmaAdresse || '') + ' – CH-' + esc(f.firmaPlz || '') + ' ' + esc(f.firmaStadt || '') + '</div>' +
-      '</div>' +
-      '</div>' +
-      (logoSrc
-        ? '<img src="' + logoSrc + '" style="max-height:90px;max-width:280px;width:auto;height:auto;display:block" alt="Logo"/>'
-        : '<div style="font-weight:800;font-size:20pt;color:#1a1a1a;letter-spacing:-0.02em;">' + esc(f.firmaName || 'City Apartments GmbH') + '</div>') +
-      '</div>' +
-
-      // Meta left + Recipient right
-      '<div style="display:flex;justify-content:space-between;margin-bottom:20px;gap:40px;">' +
-      '<div style="font-size:11px;line-height:2">' +
-      '<div><span style="display:inline-block;min-width:42mm;font-weight:700">Quittungs-Nr.:</span>' + esc(d.nummer || '—') + '</div>' +
-      '<div><span style="display:inline-block;min-width:42mm;font-weight:700">Datum:</span>' + esc(heute()) + '</div>' +
-      '<div><span style="display:inline-block;min-width:42mm;font-weight:700">Mietobjekt:</span>' + esc(d.tenant.unit || '') + (d.tenant.address ? ', ' + esc(d.tenant.address) : '') + '</div>' +
-      '</div>' +
-      '<div style="text-align:left;font-size:11px;line-height:1.85;padding-left:20px;min-width:220px">' +
-      '<div style="border-bottom:1px solid #ddd;padding-bottom:3px;margin-bottom:5px;font-size:9px;color:#666">' + esc(f.firmaName || 'City Apartments GmbH') + '</div>' +
-      '<div style="font-weight:500">' + esc(d.tenant.nameRaw || (d.tenant.vorname + ' ' + d.tenant.nachname)) + '</div>' +
-      '<div>' + esc(d.tenant.address || '') + '</div>' +
-      '</div>' +
-      '</div>' +
-
-      // Title
-      '<h1 style="font-family:\'Helvetica Neue\',sans-serif;font-weight:800;font-size:26pt;color:#1a1a1a;letter-spacing:-0.03em;margin:12px 0 14px;">Mietzinsquittung</h1>' +
-
-      // Body
-      '<p>Hiermit wird bestätigt, dass <strong>' + esc(d.tenant.nameRaw || (d.tenant.vorname + ' ' + d.tenant.nachname)) + '</strong> ' +
-      'den Mietzins (inkl. Nebenkosten) für das Mietobjekt an der Adresse <strong>' +
-      esc((d.tenant.address || '') + (d.tenant.unit ? ', ' + d.tenant.unit : '')) +
-      '</strong> für folgenden Zeitraum vollständig bezahlt hat:</p>' +
-
+    var bodyHTML =
+      '<p>Hiermit wird best\u00e4tigt, dass <strong>' + L.esc(d.tenant.nameRaw || (d.tenant.vorname + ' ' + d.tenant.nachname)) + '</strong> ' +
+      'den Mietzins (inkl. Nebenkosten) f\u00fcr das Mietobjekt an der Adresse <strong>' +
+      L.esc((d.tenant.address || '') + (d.tenant.unit ? ', ' + d.tenant.unit : '')) +
+      '</strong> f\u00fcr folgenden Zeitraum vollst\u00e4ndig bezahlt hat:</p>' +
       '<table>' +
-      '<thead><tr><th>Monat</th><th style="text-align:right;">Betrag</th></tr></thead>' +
+      '<thead><tr><th>Monat</th><th style="text-align:right">Betrag</th></tr></thead>' +
       '<tbody>' + rows +
-      '<tr class="total-row"><td>Gesamtbetrag (' + d.monthsList.length + ' Monat' + (d.monthsList.length > 1 ? 'e' : '') + ')</td><td style="text-align:right;">CHF ' + fmt(d.total) + '</td></tr>' +
+      '<tr style="border-top:2px solid #1a1a1a;font-weight:700"><td style="padding:10px 6px;font-size:12px">Gesamtbetrag (' + d.monthsList.length + ' Monat' + (d.monthsList.length > 1 ? 'e' : '') + ')</td><td style="text-align:right;padding:10px 6px;font-size:12px">CHF ' + fmt(d.total) + '</td></tr>' +
       '</tbody></table>' +
+      '<div style="font-style:italic;color:#666;margin:4mm 0">In Worten: ' + L.esc(numInWorten(d.total)) + ' Franken</div>' +
+      '<p>Die Zahlungen wurden ordnungsgem\u00e4ss auf das Konto des Vermieters \u00fcberwiesen bzw. in bar entgegengenommen. Es bestehen keine weiteren Forderungen f\u00fcr die oben genannten Monate.</p>' +
+      '<p style="margin-top:6mm;color:#666;font-size:9.5px">Diese Quittung wurde maschinell erstellt und ist ohne Unterschrift g\u00fcltig.</p>';
 
-      '<div class="in-worten">In Worten: ' + esc(numInWorten(d.total)) + ' Franken</div>' +
-
-      '<p>Die Zahlungen wurden ordnungsgemäß auf das Konto des Vermieters überwiesen bzw. in bar entgegengenommen. Es bestehen keine weiteren Forderungen für die oben genannten Monate.</p>' +
-
-      '<p style="margin-top:8mm;color:#666;font-size:10px">Diese Quittung wurde maschinell erstellt und ist ohne Unterschrift gültig.</p>' +
-
-      // Signature
-      '<div class="sig">' +
-      '<div class="sig-col">Ort, Datum<br/><span style="font-weight:500">' + esc((f.firmaStadt || '') + ', ' + heute()) + '</span></div>' +
-      '<div class="sig-col">' + esc(f.firmaName || 'City Apartments GmbH') + '<br/><span style="color:#666">Vermieter</span></div>' +
-      '</div>' +
-
-      '</div>' + // /main content
-      '</div>' + // /root flex
-
-      '<scr' + 'ipt>window.onload=function(){setTimeout(function(){window.print()},400)}</scr' + 'ipt>' +
-      '</body></html>';
+    return L.build({
+      title: 'Mietzinsquittung ' + (d.nummer || ''),
+      docTitle: 'Mietzinsquittung',
+      recipient: {
+        name: d.tenant.nameRaw || (d.tenant.vorname + ' ' + d.tenant.nachname),
+        addressLines: [d.tenant.address || ''].filter(Boolean)
+      },
+      metaRows: [
+        { label: 'Quittungs-Nr.:', value: d.nummer || '\u2014', bold: true },
+        { label: 'Datum:', value: L.heute(), bold: true },
+        { label: 'Mietobjekt:', value: (d.tenant.unit || '') + (d.tenant.address ? ', ' + d.tenant.address : ''), bold: true }
+      ],
+      bodyHTML: bodyHTML,
+      showSig: true
+    });
   }
 
   // === Send Dialog ===
@@ -4372,63 +4488,67 @@ react-dom/cjs/react-dom-client.production.js:
   }
 
   function clickSidebarItem(labelText) {
-    // Strategy: find any element whose trimmed textContent EQUALS the label,
-    // then walk up to find the clickable ancestor (element with click handler, cursor:pointer, or role)
-    // and dispatch a click there.
-    function findExact(label) {
-      var all = document.querySelectorAll('a, div, button, li, span');
-      for (var i = 0; i < all.length; i++) {
-        var el = all[i];
-        // Use deep textContent (elements have text + icon + badge — match on full text containing label as word)
-        var t = (el.textContent || '').trim();
-        if (t === label) return el;
+    LOG('navigating to sidebar item:', labelText);
+
+    // Strategy 1: Find <li>/<button>/<a> in sidebar that contains the text
+    function findInSidebar(label) {
+      // Find sidebar containers
+      var sidebars = document.querySelectorAll('nav, aside, [class*="sidebar"]');
+      for (var s = 0; s < sidebars.length; s++) {
+        var items = sidebars[s].querySelectorAll('a, button, li, div');
+        for (var i = 0; i < items.length; i++) {
+          var el = items[i];
+          // Skip large containers
+          if (el.children.length > 8) continue;
+          var t = (el.textContent || '').trim();
+          // Strip badges (numbers at end)
+          var clean = t.replace(/\s*\d+\s*$/, '').trim();
+          // Match exact, or starts-with (handles icon prefixes)
+          if (clean === label || clean.endsWith(label) || t === label) {
+            return el;
+          }
+        }
       }
       return null;
     }
-    function findContaining(label) {
-      // Prefer shortest matching textContent to avoid matching huge containers
-      var all = document.querySelectorAll('a, div, button, li');
-      var best = null;
-      var bestLen = 1e9;
+
+    var target = findInSidebar(labelText);
+    if (!target) {
+      // Fallback: scan everywhere with stricter rules
+      var all = document.querySelectorAll('a, button, li');
       for (var i = 0; i < all.length; i++) {
         var el = all[i];
+        if (el.children.length > 8) continue;
         var t = (el.textContent || '').trim();
-        if (t.indexOf(label) !== -1 && t.length < bestLen && t.length < label.length + 10) {
-          best = el;
-          bestLen = t.length;
-        }
+        var clean = t.replace(/\s*\d+\s*$/, '').trim();
+        if (clean === labelText) { target = el; break; }
       }
-      return best;
     }
 
-    var target = findExact(labelText) || findContaining(labelText);
     if (!target) {
       alert('Menüpunkt "' + labelText + '" nicht gefunden. Bitte manuell in der Sidebar anklicken.');
       return false;
     }
+    LOG('found sidebar target:', target.tagName, target.textContent.trim().slice(0, 30));
 
-    // Find the actual clickable ancestor (walk up to max 5 levels)
+    // Walk up to find clickable ancestor
     var node = target;
-    var clickable = null;
-    for (var j = 0; j < 6 && node; j++) {
+    var clickable = node;
+    for (var j = 0; j < 5 && node; j++) {
       if (node.tagName === 'A' || node.tagName === 'BUTTON') { clickable = node; break; }
       var cs = '';
       try { cs = window.getComputedStyle(node).cursor; } catch (e) {}
-      if (cs === 'pointer' || (node.onclick) || node.getAttribute('role') === 'button' || node.getAttribute('role') === 'menuitem') {
-        clickable = node;
-        break;
-      }
+      if (cs === 'pointer') { clickable = node; break; }
       node = node.parentElement;
     }
-    // Fallback: just click the original target
-    if (!clickable) clickable = target;
 
-    // Dispatch a proper click via MouseEvent (React listens to this)
+    // Dispatch click via React-friendly event
     try {
-      clickable.click();
-    } catch (e) {
       var ev = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
       clickable.dispatchEvent(ev);
+      LOG('click dispatched');
+    } catch (e) {
+      try { clickable.click(); } catch (e2) {}
     }
     return true;
   }
@@ -4637,62 +4757,37 @@ react-dom/cjs/react-dom-client.production.js:
   }
 
   // === Shared letterhead template ===
+  // Now uses the global __CA_LETTERHEAD module which matches invoice exactly.
   function buildLetterhead(opts) {
-    var f = opts.firma || {};
-    return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><title>' + esc(opts.title || 'Brief') + '</title>' +
-      '<style>' +
-      '@page{size:A4;margin:0}' +
-      '*{box-sizing:border-box;margin:0;padding:0}' +
-      'html,body{width:210mm;background:#fff;font-family:"Helvetica Neue",Arial,sans-serif;font-size:10.5pt;color:#1a1a1a;line-height:1.6}' +
-      '.sidebar{position:fixed;left:0;top:0;bottom:0;width:9px;background:#C0392B;z-index:100}' +
-      '.bottom-bar{position:fixed;bottom:0;left:0;right:0;height:11px;background:#C0392B;z-index:100}' +
-      '.page{margin-left:18px;padding:6mm 18mm 20mm 14mm;min-height:287mm}' +
-      '.header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:4mm;width:100%}' +
-      '.contact-info{font-size:8pt;color:#333;line-height:1.9}' +
-      '.recipient{margin:14mm 0 8mm 55%;font-size:10.5pt;line-height:1.7}' +
-      '.subject{font-size:13pt;font-weight:700;margin:8mm 0 6mm;color:#C0392B}' +
-      'p{margin-bottom:4mm;line-height:1.7}' +
-      '.sig-row{margin-top:18mm;display:flex;justify-content:space-between;gap:14mm}' +
-      '.sig-col{flex:1;border-top:1px solid #1a1a1a;padding-top:3mm;font-size:9.5pt}' +
-      '@media print{.sidebar,.bottom-bar{display:block!important}html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}' +
-      '</style></head><body>' +
-      '<div class="sidebar"></div><div class="bottom-bar"></div>' +
-      '<div class="page">' +
-
-      '<div class="header">' +
-      '<div style="display:flex;align-items:center;gap:0;">' +
-      '<div style="background:#C0392B;width:45px;align-self:stretch;display:flex;flex-direction:column;justify-content:center;gap:7px;padding:0 6px;margin-right:12px;flex-shrink:0;">' +
-      '<div style="width:34px;height:3px;background:#fff;"></div>'.repeat(4) +
-      '</div>' +
-      '<div class="contact-info">' +
-      '<div>T: ' + esc(f.firmaPhone || '') + '</div>' +
-      '<div>Mail: ' + esc(f.firmaMail || '') + '</div>' +
-      '<div>' + esc(f.firmaWeb || '') + '</div>' +
-      '<div style="white-space:nowrap">' + esc(f.firmaAdresse || '') + ' | ' + esc(f.firmaPlz || '') + ' ' + esc(f.firmaStadt || '') + '</div>' +
-      '</div>' +
-      '</div>' +
-      '<div style="font-weight:800;font-size:22pt;color:#1a1a1a;letter-spacing:-0.02em;">' + esc(f.firmaName || 'City Apartments GmbH') + '</div>' +
-      '</div>' +
-
-      '<div class="recipient">' +
-      '<div style="font-weight:500">' + esc(opts.recipient.name) + '</div>' +
-      '<div>' + esc(opts.recipient.address) + '</div>' +
-      '</div>' +
-
-      '<div style="margin:6mm 0 4mm;font-size:10pt;color:#555;">' + esc((f.firmaStadt || '') + ', ' + heute()) + '</div>' +
-
-      '<div class="subject">' + esc(opts.subject) + '</div>' +
-
-      opts.body +
-
-      '<div class="sig-row">' +
-      '<div class="sig-col">Ort, Datum<br/><span style="font-weight:500">' + esc((f.firmaStadt || '') + ', ' + heute()) + '</span></div>' +
-      '<div class="sig-col">' + esc(f.firmaName || '') + '<br/><span style="color:#666">Vermieter</span></div>' +
-      '</div>' +
-
-      '</div>' +
-      '<scr' + 'ipt>window.onload=function(){setTimeout(function(){window.print()},400)}</scr' + 'ipt>' +
-      '</body></html>';
+    if (!window.__CA_LETTERHEAD) {
+      console.error('[vorlagen] letterhead module not loaded');
+      return '<html><body>Letterhead module fehlt</body></html>';
+    }
+    var L = window.__CA_LETTERHEAD;
+    // Convert old-style opts to new module signature
+    var addressLines = [];
+    if (opts.recipient && opts.recipient.address) {
+      // Split address by comma if it contains street + plz
+      addressLines = String(opts.recipient.address).split(/,\s*/);
+    }
+    var bodyHTML = (opts.body || '');
+    // Prepend Datum header (Stadt, DD.MM.YYYY) since old layout had it before subject
+    var f = opts.firma || L.loadFirma();
+    var dateLine = '<div style="margin-bottom:6mm;color:#555;font-size:10px">' + L.esc((f.firmaStadt || '') + ', ' + L.heute()) + '</div>';
+    var subjectLine = opts.subject
+      ? '<h2 style="font-size:15px;font-weight:700;color:#C0392B;margin:6mm 0 4mm">' + L.esc(opts.subject) + '</h2>'
+      : '';
+    return L.build({
+      title: opts.title || opts.subject || 'Brief',
+      docTitle: '',  // No big title — subject acts as header
+      recipient: {
+        name: opts.recipient ? opts.recipient.name : '',
+        addressLines: addressLines
+      },
+      metaRows: [],   // Wohnsitz/Brief don't need meta rows
+      bodyHTML: dateLine + subjectLine + bodyHTML,
+      showSig: true
+    });
   }
 
   // === Sidebar integration ===
