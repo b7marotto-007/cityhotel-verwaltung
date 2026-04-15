@@ -649,6 +649,8 @@ react-dom/cjs/react-dom-client.production.js:
 
 
 
+
+
 <script id="letterhead-module">
 /* Letterhead — Shared template matching invoice exactly */
 (function () {
@@ -785,8 +787,8 @@ react-dom/cjs/react-dom-client.production.js:
       '</div>' +
       '</div>' +
 
-      // Right: BIG LOGO (same as invoice)
-      '<img src="' + CA_LOGO_FULL + '" style="height:55px;width:auto;display:block" alt="City Apartments"/>' +
+      // Right: BIG LOGO (same as invoice, 2x size)
+      '<img src="' + CA_LOGO_FULL + '" style="height:110px;width:auto;display:block" alt="City Apartments"/>' +
 
       '</div>' + // /header
 
@@ -3868,10 +3870,30 @@ react-dom/cjs/react-dom-client.production.js:
     return true;
   }
 
+  // Generate next quittung number in format JAHR-NNN, reset yearly
+  function nextQuittungNummer() {
+    var year = new Date().getFullYear();
+    var prefix = year + '-';
+    var max = 0;
+    var all = loadQuittungen();
+    for (var i = 0; i < all.length; i++) {
+      var n = all[i].nummer || '';
+      if (n.indexOf(prefix) === 0) {
+        var num = parseInt(n.slice(prefix.length), 10);
+        if (!isNaN(num) && num > max) max = num;
+      }
+    }
+    return prefix + String(max + 1).padStart(3, '0');
+  }
+
   function saveQuittung(status) {
     if (!currentState.id) {
       currentState.id = genId();
       currentState.created = new Date().toISOString();
+    }
+    // Assign a JAHR-NNN nummer if not yet set (only on first save)
+    if (!currentState.nummer) {
+      currentState.nummer = nextQuittungNummer();
     }
     currentState.status = status;
     var tenants = loadTenants();
@@ -3879,6 +3901,7 @@ react-dom/cjs/react-dom-client.production.js:
     var rent = Number(t.rent || 0);
     var rec = {
       id: currentState.id,
+      nummer: currentState.nummer,
       tenantId: currentState.tenantId,
       status: status,
       created: currentState.created,
@@ -3895,7 +3918,7 @@ react-dom/cjs/react-dom-client.production.js:
     for (var i = 0; i < all.length; i++) if (all[i].id === rec.id) { idx = i; break; }
     if (idx >= 0) all[idx] = rec; else all.push(rec);
     saveQuittungen(all);
-    LOG('saved quittung', rec.id, status);
+    LOG('saved quittung', rec.id, rec.nummer, status);
     return rec;
   }
 
@@ -3911,6 +3934,11 @@ react-dom/cjs/react-dom-client.production.js:
     var total = rent * monthsList.length;
     var monthsText = monthsList.map(function (m) { return MONATE[m.month] + ' ' + m.year; }).join(', ');
 
+    // Assign nummer if needed (so print also works without prior save)
+    if (!currentState.nummer) {
+      currentState.nummer = nextQuittungNummer();
+    }
+
     var html = buildPrintHTML({
       firma: firma,
       tenant: t,
@@ -3918,7 +3946,7 @@ react-dom/cjs/react-dom-client.production.js:
       monthsList: monthsList,
       rent: rent,
       total: total,
-      nummer: (currentState.id || '').slice(-8).toUpperCase()
+      nummer: currentState.nummer
     });
 
     var win = window.open('', '_blank');
@@ -4469,7 +4497,7 @@ react-dom/cjs/react-dom-client.production.js:
         clickSidebarItem('QR-Rechnung');
         break;
       case 'mahnung':
-        clickSidebarItem('Rückstände');
+        openMahnungModal();
         break;
       case 'quittung':
         if (typeof window.openQuittungModal === 'function') {
@@ -4609,6 +4637,214 @@ react-dom/cjs/react-dom-client.production.js:
     var m = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (m) return m[3] + '.' + m[2] + '.' + m[1];
     return str;
+  }
+
+  // === Mahnung Modal ===
+  // Calculates open months for tenant from pm_payments and pm_tenants
+  function calcOpenMonths(tenant) {
+    var payments = (function () {
+      try { var s = localStorage.getItem('cache_pm_payments'); return s ? JSON.parse(s) : []; } catch (e) { return []; }
+    })();
+    var rent = Number(tenant.rent || 0);
+    var openMonths = [];
+    var totalOpen = 0;
+    var startDate = tenant.startDate ? new Date(tenant.startDate) : null;
+    var endDate = tenant.endDate ? new Date(tenant.endDate) : null;
+    var today = new Date();
+    if (!startDate) return { months: [], total: 0 };
+
+    var year = startDate.getFullYear();
+    var month = startDate.getMonth();
+    var endY = today.getFullYear();
+    var endM = today.getMonth();
+    if (endDate && endDate < today) {
+      endY = endDate.getFullYear();
+      endM = endDate.getMonth();
+    }
+    while (year < endY || (year === endY && month <= endM)) {
+      var paid = payments.find(function (p) {
+        return p.tenantId === tenant.id && p.month === month && p.year === year && p.paid;
+      });
+      if (!paid) {
+        openMonths.push({ month: month, year: year });
+        totalOpen += rent;
+      }
+      month++;
+      if (month > 11) { month = 0; year++; }
+    }
+    return { months: openMonths, total: totalOpen };
+  }
+
+  function openMahnungModal() {
+    if (document.getElementById('vh-mahnung-modal')) return;
+    var tenants = loadTenants();
+    if (!tenants.length) { alert('Keine Mieter vorhanden.'); return; }
+
+    var COL_RED = '#C0392B';
+    var COL_BORDER = '#E8E5DE';
+    var COL_GRAY = '#8B8A86';
+
+    var overlay = document.createElement('div');
+    overlay.id = 'vh-mahnung-modal';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:99996;display:flex;align-items:flex-start;justify-content:center;padding:30px 20px;overflow-y:auto;font-family:"DM Sans",system-ui,sans-serif;';
+
+    // Build tenant options with open amount info
+    var tenantOpts = '<option value="">— Mieter wählen —</option>';
+    tenants.forEach(function (t) {
+      var info = calcOpenMonths(t);
+      if (info.total > 0) {
+        var name = t.nameRaw || (t.vorname + ' ' + t.nachname);
+        tenantOpts += '<option value="' + esc(t.id) + '" data-total="' + info.total + '" data-months="' + info.months.length + '">' +
+          esc((t.unit || '—') + ' — ' + name + ' (CHF ' + info.total.toLocaleString('de-CH') + ' offen, ' + info.months.length + ' Monate)') +
+          '</option>';
+      }
+    });
+
+    overlay.innerHTML =
+      '<div style="background:#fff;border-radius:16px;max-width:560px;width:100%;box-shadow:0 24px 80px rgba(0,0,0,0.3);">' +
+      '<div style="padding:22px 26px;border-bottom:1px solid ' + COL_BORDER + ';display:flex;justify-content:space-between;align-items:center;">' +
+      '<div>' +
+      '<div style="font-size:18px;font-weight:700;">⚠ Mahnung erstellen</div>' +
+      '<div style="font-size:12px;color:' + COL_GRAY + ';margin-top:2px;">Zahlungsrückstand mahnen</div>' +
+      '</div>' +
+      '<button id="vh-mh-close" style="width:32px;height:32px;border-radius:50%;border:1px solid ' + COL_BORDER + ';background:#fff;font-size:18px;cursor:pointer;">×</button>' +
+      '</div>' +
+      '<div style="padding:22px 26px;">' +
+
+      '<label style="display:block;font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:' + COL_GRAY + ';margin-bottom:6px;">Mieter mit offenen Zahlungen</label>' +
+      '<select id="vh-mh-tenant" style="width:100%;padding:10px 12px;border:1.5px solid ' + COL_BORDER + ';border-radius:8px;font-size:14px;font-family:inherit;margin-bottom:14px;">' +
+      tenantOpts + '</select>' +
+
+      '<label style="display:block;font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:' + COL_GRAY + ';margin-bottom:6px;">Mahnstufe</label>' +
+      '<select id="vh-mh-stufe" style="width:100%;padding:10px 12px;border:1.5px solid ' + COL_BORDER + ';border-radius:8px;font-size:14px;font-family:inherit;margin-bottom:14px;">' +
+      '<option value="1">1. Mahnung (10 Tage Frist)</option>' +
+      '<option value="2">2. Mahnung (5 Tage Frist)</option>' +
+      '<option value="kuendigung">Kündigungsandrohung (Art. 257d OR)</option>' +
+      '</select>' +
+
+      '<div id="vh-mh-info" style="padding:12px;background:#FEF3C7;border-radius:8px;margin-bottom:14px;font-size:12px;color:#92400E;display:none;"></div>' +
+
+      '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px;">' +
+      '<button id="vh-mh-cancel" style="padding:10px 18px;border-radius:8px;border:1px solid ' + COL_BORDER + ';background:#fff;cursor:pointer;font-size:13px;">Abbrechen</button>' +
+      '<button id="vh-mh-print" style="padding:10px 18px;border-radius:8px;border:none;background:' + COL_RED + ';color:#fff;cursor:pointer;font-size:13px;font-weight:600;">🖨 Drucken / PDF</button>' +
+      '</div>' +
+      '</div></div>';
+
+    document.body.appendChild(overlay);
+    var close = function () { overlay.remove(); };
+    document.getElementById('vh-mh-close').addEventListener('click', close);
+    document.getElementById('vh-mh-cancel').addEventListener('click', close);
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+
+    // Update info on tenant change
+    function updateInfo() {
+      var sel = document.getElementById('vh-mh-tenant');
+      var opt = sel.options[sel.selectedIndex];
+      var info = document.getElementById('vh-mh-info');
+      if (opt && opt.value) {
+        var total = opt.getAttribute('data-total');
+        var months = opt.getAttribute('data-months');
+        info.style.display = 'block';
+        info.innerHTML = '⚠ <strong>CHF ' + Number(total).toLocaleString('de-CH') + '</strong> offen über <strong>' + months + ' Monate</strong>';
+      } else {
+        info.style.display = 'none';
+      }
+    }
+    document.getElementById('vh-mh-tenant').addEventListener('change', updateInfo);
+
+    document.getElementById('vh-mh-print').addEventListener('click', function () {
+      var tid = document.getElementById('vh-mh-tenant').value;
+      if (!tid) { alert('Bitte Mieter wählen.'); return; }
+      var stufe = document.getElementById('vh-mh-stufe').value;
+      var tenant = tenants.filter(function (t) { return t.id === tid; })[0];
+      printMahnung(tenant, stufe);
+      close();
+    });
+  }
+
+  function printMahnung(tenant, stufe) {
+    var f = loadFirma();
+    var name = tenant.nameRaw || (tenant.vorname + ' ' + tenant.nachname);
+    var info = calcOpenMonths(tenant);
+    var monthNames = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+    var monthsList = info.months.map(function (m) { return monthNames[m.month] + ' ' + m.year; }).join(', ');
+    var totalStr = 'CHF ' + Number(info.total).toLocaleString('de-CH', { minimumFractionDigits: 2 });
+
+    var subject, bodyHTML;
+    if (stufe === '1') {
+      subject = 'Zahlungsrückstand: 1. Mahnung';
+      bodyHTML =
+        '<p>Sehr geehrte Damen und Herren,</p>' +
+        '<p>Leider mussten wir feststellen, dass die Mietzinszahlung für <strong>' + esc(monthsList) + '</strong> bisher nicht beglichen wurde.</p>' +
+        '<p>Wir fordern Sie hiermit auf, den ausstehenden Betrag von <strong>' + esc(totalStr) + '</strong> innerhalb von <strong>10 Tagen</strong> nach Erhalt dieses Schreibens auf folgendes Konto einzuzahlen:</p>' +
+        '<p style="padding-left:8mm;line-height:1.9"><strong>Begünstigter:</strong> ' + esc(f.firmaName || '') + '<br/>' +
+        '<strong>IBAN:</strong> ' + esc(f.iban || 'CH36 0076 1638 9224 1200 4') + '</p>' +
+        '<p>Sollten wir in der Zwischenzeit Ihre Zahlung erhalten haben, betrachten Sie dieses Schreiben bitte als gegenstandslos.</p>' +
+        '<p>Bei Fragen stehen wir Ihnen gerne zur Verfügung.</p>' +
+        '<p>Freundliche Grüsse<br/>' + esc(f.firmaName || '') + '</p>';
+    } else if (stufe === '2') {
+      subject = 'Zahlungsrückstand: 2. Mahnung';
+      bodyHTML =
+        '<p>Sehr geehrte Damen und Herren,</p>' +
+        '<p>Trotz unserer ersten Mahnung haben wir bis heute keinen Eingang Ihrer Mietzinszahlung für <strong>' + esc(monthsList) + '</strong> in Höhe von <strong>' + esc(totalStr) + '</strong> feststellen können.</p>' +
+        '<p>Wir fordern Sie <strong>letztmalig</strong> auf, den Betrag innerhalb von <strong>5 Tagen</strong> auf folgendes Konto zu überweisen:</p>' +
+        '<p style="padding-left:8mm;line-height:1.9"><strong>Begünstigter:</strong> ' + esc(f.firmaName || '') + '<br/>' +
+        '<strong>IBAN:</strong> ' + esc(f.iban || 'CH36 0076 1638 9224 1200 4') + '</p>' +
+        '<p>Sollte Ihre Zahlung nicht innerhalb dieser Frist eingehen, werden wir ohne weitere Vorwarnung das Mietverhältnis kündigen und ein Betreibungsverfahren einleiten (Art. 257d OR).</p>' +
+        '<p>Falls sich Ihre Zahlung mit diesem Schreiben gekreuzt hat, betrachten Sie dieses Schreiben bitte als gegenstandslos.</p>' +
+        '<p>Freundliche Grüsse<br/>' + esc(f.firmaName || '') + '</p>';
+    } else {
+      subject = 'Zahlungsrückstand: Androhung der Kündigung (Art. 257d OR)';
+      bodyHTML =
+        '<p>Sehr geehrte Damen und Herren,</p>' +
+        '<p>Trotz mehrfacher Mahnung sind die Mietzinszahlungen für <strong>' + esc(monthsList) + '</strong> in Höhe von <strong>' + esc(totalStr) + '</strong> bis heute nicht eingegangen.</p>' +
+        '<p>Gemäss <strong>Art. 257d OR</strong> setzen wir Ihnen hiermit eine letzte Zahlungsfrist von <strong>30 Tagen</strong> nach Erhalt dieses Schreibens.</p>' +
+        '<p>Begleichen Sie den ausstehenden Betrag bitte umgehend auf folgendes Konto:</p>' +
+        '<p style="padding-left:8mm;line-height:1.9"><strong>Begünstigter:</strong> ' + esc(f.firmaName || '') + '<br/>' +
+        '<strong>IBAN:</strong> ' + esc(f.iban || 'CH36 0076 1638 9224 1200 4') + '</p>' +
+        '<p><strong>Sollte die Zahlung nicht fristgerecht erfolgen, werden wir das Mietverhältnis ausserordentlich kündigen.</strong> Eine Kündigung erfolgt mit eingeschriebenem Brief mit einer Frist von 30 Tagen auf Ende eines Monats.</p>' +
+        '<p>Wir erwarten Ihre umgehende Reaktion.</p>' +
+        '<p>Freundliche Grüsse<br/>' + esc(f.firmaName || '') + '</p>';
+    }
+
+    if (!window.__CA_LETTERHEAD) { alert('Letterhead nicht geladen'); return; }
+    var L = window.__CA_LETTERHEAD;
+
+    var html = L.build({
+      title: subject,
+      docTitle: '',
+      recipient: {
+        name: name,
+        addressLines: (tenant.address || '').split(/,\s*/)
+      },
+      metaRows: [
+        { label: 'Datum:', value: L.heute(), bold: true },
+        { label: 'Mietobjekt:', value: tenant.unit || '', bold: true }
+      ],
+      bodyHTML:
+        '<div style="margin-bottom:6mm;color:#555;font-size:10px">' + L.esc((f.firmaStadt || '') + ', ' + L.heute()) + '</div>' +
+        '<h2 style="font-size:15px;font-weight:700;color:#C0392B;margin:6mm 0 4mm">' + L.esc(subject) + '</h2>' +
+        bodyHTML,
+      showSig: true
+    });
+
+    var win = window.open('', '_blank');
+    if (!win) { alert('Popup blockiert'); return; }
+    win.document.write(html);
+    win.document.close();
+    setTimeout(function () { try { win.focus(); win.print(); } catch (e) {} }, 400);
+
+    // Log to versand history
+    var docTypMap = { '1': 'mahnung_1', '2': 'mahnung_2', 'kuendigung': 'kuendigungsandrohung' };
+    saveHistoryRec({
+      id: 'v_' + Date.now().toString(36),
+      datum: new Date().toISOString(),
+      docTyp: 'mahnung',
+      tenantId: tenant.id,
+      mieterName: name,
+      kanal: 'print',
+      details: subject + ' — ' + totalStr
+    });
   }
 
   // === Wohnsitzbestätigung Print ===
