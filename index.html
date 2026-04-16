@@ -652,6 +652,8 @@ react-dom/cjs/react-dom-client.production.js:
 
 
 
+
+
 <script id="letterhead-module">
 /* Letterhead — Shared template matching invoice exactly */
 (function () {
@@ -5176,6 +5178,745 @@ react-dom/cjs/react-dom-client.production.js:
       return; // skip — performance during modal interaction
     }
     try { relabelSidebarEntries(); } catch (e) { LOG('relabel failed', e); }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(init, 600); });
+  } else {
+    setTimeout(init, 600);
+  }
+})();
+
+</script>
+<script id="pay-edit-module">
+/* Payment-Edit Module
+ * Makes payment dots in "Zahlungsübersicht" clickable.
+ * Click → context menu (bezahlt / offen / teilweise)
+ * → Dialog asks for date + channel (Bank/Bar)
+ * → Saves to pm_payments
+ */
+(function () {
+  'use strict';
+  var LOG = function () {
+    try { console.log.apply(console, ['[pay-edit]'].concat([].slice.call(arguments))); } catch (e) {}
+  };
+
+  var COL_RED = '#C0392B';
+  var COL_DARK = '#0C0F1A';
+  var COL_GRAY = '#8B8A86';
+  var COL_BORDER = '#E8E5DE';
+  var MONTHS = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+  var MONTHS_SHORT = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+
+  // ===== Storage helpers =====
+  function loadCache(key) {
+    try { var v = localStorage.getItem('cache_' + key); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+  }
+  function saveCache(key, value) {
+    try { localStorage.setItem('cache_' + key, JSON.stringify(value)); } catch (e) {}
+  }
+  function supaCfg() {
+    try { return JSON.parse(localStorage.getItem('_supa_cfg') || 'null'); } catch (e) { return null; }
+  }
+  function supaPush(key, value) {
+    var c = supaCfg();
+    if (!c) return;
+    try {
+      fetch(c.url + '/rest/v1/pm_kv', {
+        method: 'POST',
+        headers: { apikey: c.key, Authorization: 'Bearer ' + c.key, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify({ key: key, value: JSON.stringify(value), updated_at: new Date().toISOString() })
+      }).catch(function () {});
+    } catch (e) {}
+  }
+
+  function loadTenants() { return loadCache('pm_tenants') || []; }
+  function loadPayments() { return loadCache('pm_payments') || []; }
+  function savePayments(arr) {
+    saveCache('pm_payments', arr);
+    supaPush('pm_payments', arr);
+  }
+
+  // ===== Find payment record or create new =====
+  function findPayment(tenantId, month, year) {
+    var arr = loadPayments();
+    for (var i = 0; i < arr.length; i++) {
+      var p = arr[i];
+      if (p.tenantId === tenantId && p.month === month && p.year === year) return { payment: p, index: i, arr: arr };
+    }
+    return { payment: null, index: -1, arr: arr };
+  }
+
+  function genId() {
+    return 'p_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  }
+
+  function setPaymentStatus(tenantId, month, year, status, opts) {
+    opts = opts || {};
+    var res = findPayment(tenantId, month, year);
+    var arr = res.arr;
+    var tenants = loadTenants();
+    var tenant = tenants.filter(function (t) { return t.id === tenantId; })[0];
+    var rent = Number((tenant && tenant.rent) || 0);
+
+    if (status === 'offen') {
+      // Remove or mark unpaid
+      if (res.payment) {
+        arr.splice(res.index, 1);
+      }
+    } else {
+      // paid or teilweise
+      var rec = res.payment || { id: genId(), tenantId: tenantId, month: month, year: year };
+      rec.paid = true;
+      rec.saved = opts.datum || new Date().toISOString().slice(0, 10);
+      rec.channel = opts.kanal || 'bank';
+      rec.amount = status === 'teilweise' ? Number(opts.amount || 0) : rent;
+      rec.partial = status === 'teilweise';
+      if (res.index >= 0) arr[res.index] = rec; else arr.push(rec);
+    }
+    savePayments(arr);
+    LOG('Set', status, 'for', tenantId, month + 1, year);
+    return true;
+  }
+
+  // ===== Context Menu =====
+  function showContextMenu(x, y, tenant, month, year, currentStatus, anchorEl) {
+    closeContextMenu();
+    var menu = document.createElement('div');
+    menu.id = 'pe-ctx-menu';
+    menu.style.cssText =
+      'position:fixed;left:' + x + 'px;top:' + y + 'px;' +
+      'background:#fff;border:1px solid ' + COL_BORDER + ';border-radius:10px;' +
+      'box-shadow:0 12px 40px rgba(0,0,0,0.2);padding:6px;min-width:180px;' +
+      'z-index:99997;font-family:"DM Sans",system-ui,sans-serif;font-size:13px;';
+
+    var title = tenant.unit ? tenant.unit + ' · ' + MONTHS_SHORT[month] + ' ' + year : MONTHS_SHORT[month] + ' ' + year;
+
+    var opts = [
+      { val: 'bezahlt', label: '✓ Bezahlt', color: '#16a34a' },
+      { val: 'teilweise', label: '◐ Teilweise', color: '#d97706' },
+      { val: 'offen', label: '✕ Offen', color: '#dc2626' }
+    ];
+
+    var html = '<div style="padding:6px 10px 10px;font-size:10px;color:' + COL_GRAY + ';font-weight:600;text-transform:uppercase;letter-spacing:0.08em;border-bottom:1px solid ' + COL_BORDER + ';margin-bottom:6px">' +
+      escHtml(title) + '</div>';
+    opts.forEach(function (o) {
+      var isCurrent = o.val === currentStatus;
+      html += '<div class="pe-ctx-item" data-val="' + o.val + '" style="padding:9px 12px;border-radius:6px;cursor:pointer;display:flex;align-items:center;gap:8px;color:' + o.color + ';' +
+        (isCurrent ? 'background:#f3f4f6;font-weight:600;' : '') + '"' +
+        ' onmouseover="this.style.background=\'#f9fafb\'" onmouseout="this.style.background=\'' + (isCurrent ? '#f3f4f6' : 'transparent') + '\'">' +
+        o.label + (isCurrent ? ' <span style="margin-left:auto;font-size:10px;color:' + COL_GRAY + '">aktuell</span>' : '') +
+        '</div>';
+    });
+    menu.innerHTML = html;
+    document.body.appendChild(menu);
+
+    // Wire click handlers
+    menu.querySelectorAll('.pe-ctx-item').forEach(function (item) {
+      item.addEventListener('click', function () {
+        var val = item.getAttribute('data-val');
+        closeContextMenu();
+        if (val === 'offen') {
+          // Just mark as offen, no dialog needed
+          setPaymentStatus(tenant.id, month, year, 'offen');
+          updateDotVisual(anchorEl, 'offen');
+          toast('Markiert als offen');
+        } else {
+          // Open dialog for date + channel (+ amount if teilweise)
+          openPaymentDialog(tenant, month, year, val, anchorEl);
+        }
+      });
+    });
+
+    // Click outside to close
+    setTimeout(function () {
+      document.addEventListener('click', closeContextMenu, { once: true, capture: true });
+    }, 50);
+  }
+
+  function closeContextMenu() {
+    var m = document.getElementById('pe-ctx-menu');
+    if (m) m.remove();
+  }
+
+  // ===== Payment Dialog =====
+  function openPaymentDialog(tenant, month, year, status, anchorEl) {
+    if (document.getElementById('pe-pay-dialog')) return;
+    var tenants = loadTenants();
+    var rent = Number(tenant.rent || 0);
+    var existing = findPayment(tenant.id, month, year).payment;
+    var defaultDate = (existing && existing.saved) || new Date().toISOString().slice(0, 10);
+    var defaultChannel = (existing && existing.channel) || 'bank';
+    var defaultAmount = (existing && existing.amount) || rent;
+
+    var name = tenant.nameRaw || (tenant.vorname + ' ' + tenant.nachname);
+
+    var overlay = document.createElement('div');
+    overlay.id = 'pe-pay-dialog';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99996;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans",system-ui,sans-serif;';
+
+    overlay.innerHTML =
+      '<div style="background:#fff;border-radius:14px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3);">' +
+      '<div style="padding:18px 22px;border-bottom:1px solid ' + COL_BORDER + ';display:flex;justify-content:space-between;align-items:center;">' +
+      '<div>' +
+      '<div style="font-size:16px;font-weight:700;color:' + COL_DARK + ';">' + (status === 'teilweise' ? '◐ Teilweise bezahlt' : '✓ Als bezahlt markieren') + '</div>' +
+      '<div style="font-size:12px;color:' + COL_GRAY + ';margin-top:2px;">' + escHtml((tenant.unit || '—') + ' · ' + name + ' · ' + MONTHS[month] + ' ' + year) + '</div>' +
+      '</div>' +
+      '<button id="pe-pd-close" style="width:30px;height:30px;border-radius:50%;border:1px solid ' + COL_BORDER + ';background:#fff;font-size:16px;cursor:pointer;">×</button>' +
+      '</div>' +
+      '<div style="padding:20px 22px;">' +
+
+      '<label style="display:block;font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:' + COL_GRAY + ';margin-bottom:6px;">Zahlungsdatum</label>' +
+      '<input type="date" id="pe-pd-date" value="' + escHtml(defaultDate) + '" style="width:100%;padding:10px 12px;border:1.5px solid ' + COL_BORDER + ';border-radius:8px;font-size:14px;font-family:inherit;margin-bottom:14px;"/>' +
+
+      '<label style="display:block;font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:' + COL_GRAY + ';margin-bottom:6px;">Kanal</label>' +
+      '<div style="display:flex;gap:8px;margin-bottom:14px;">' +
+      '<label style="flex:1;padding:10px;border:1.5px solid ' + COL_BORDER + ';border-radius:8px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px;' + (defaultChannel === 'bank' ? 'background:#f3f4f6;border-color:' + COL_RED + ';' : '') + '">' +
+      '<input type="radio" name="pe-channel" value="bank"' + (defaultChannel === 'bank' ? ' checked' : '') + ' style="accent-color:' + COL_RED + '"/>🏦 Bank</label>' +
+      '<label style="flex:1;padding:10px;border:1.5px solid ' + COL_BORDER + ';border-radius:8px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px;' + (defaultChannel === 'bar' ? 'background:#f3f4f6;border-color:' + COL_RED + ';' : '') + '">' +
+      '<input type="radio" name="pe-channel" value="bar"' + (defaultChannel === 'bar' ? ' checked' : '') + ' style="accent-color:' + COL_RED + '"/>💵 Bar</label>' +
+      '</div>' +
+
+      (status === 'teilweise' ?
+        '<label style="display:block;font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:' + COL_GRAY + ';margin-bottom:6px;">Bezahlter Betrag (CHF) <span style="color:' + COL_GRAY + ';text-transform:none;font-weight:400">— voll wäre ' + rent.toFixed(2) + '</span></label>' +
+        '<input type="number" id="pe-pd-amount" value="' + defaultAmount + '" step="0.05" min="0" style="width:100%;padding:10px 12px;border:1.5px solid ' + COL_BORDER + ';border-radius:8px;font-size:14px;font-family:inherit;margin-bottom:14px;"/>'
+        : '') +
+
+      '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px;">' +
+      '<button id="pe-pd-cancel" style="padding:10px 18px;border-radius:8px;border:1px solid ' + COL_BORDER + ';background:#fff;cursor:pointer;font-size:13px;">Abbrechen</button>' +
+      '<button id="pe-pd-save" style="padding:10px 18px;border-radius:8px;border:none;background:' + COL_RED + ';color:#fff;cursor:pointer;font-size:13px;font-weight:600;">💾 Speichern</button>' +
+      '</div>' +
+      '</div></div>';
+
+    document.body.appendChild(overlay);
+
+    var close = function () { overlay.remove(); };
+    document.getElementById('pe-pd-close').addEventListener('click', close);
+    document.getElementById('pe-pd-cancel').addEventListener('click', close);
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+
+    document.getElementById('pe-pd-save').addEventListener('click', function () {
+      var datum = document.getElementById('pe-pd-date').value;
+      var kanal = (document.querySelector('input[name="pe-channel"]:checked') || {}).value || 'bank';
+      var amountEl = document.getElementById('pe-pd-amount');
+      var amount = amountEl ? parseFloat(amountEl.value) || 0 : rent;
+      if (!datum) { alert('Bitte Datum eingeben.'); return; }
+      if (status === 'teilweise' && (!amount || amount <= 0)) { alert('Bitte Betrag eingeben.'); return; }
+
+      setPaymentStatus(tenant.id, month, year, status, {
+        datum: datum,
+        kanal: kanal,
+        amount: amount
+      });
+      updateDotVisual(anchorEl, status);
+      close();
+      toast('✓ Zahlung gespeichert');
+    });
+  }
+
+  // ===== Visual update (change dot color immediately) =====
+  function updateDotVisual(el, status) {
+    if (!el) return;
+    var dot = el.tagName === 'SPAN' ? el : el.querySelector('span');
+    if (!dot) return;
+    if (status === 'bezahlt') {
+      dot.style.background = '#22c55e';
+      dot.title = 'Bezahlt';
+    } else if (status === 'teilweise') {
+      dot.style.background = '#eab308';
+      dot.title = 'Teilweise bezahlt';
+    } else {
+      dot.style.background = '#ef4444';
+      dot.title = 'Offen';
+    }
+    // Also re-render table eventually via polling (our interval below)
+  }
+
+  // ===== Toast =====
+  function toast(msg) {
+    var t = document.createElement('div');
+    t.textContent = msg;
+    t.style.cssText = 'position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:#0c0f1a;color:#fff;padding:12px 22px;border-radius:999px;font-size:13px;font-family:"DM Sans",system-ui,sans-serif;z-index:99999;box-shadow:0 10px 30px rgba(0,0,0,0.3)';
+    document.body.appendChild(t);
+    setTimeout(function () { t.style.transition = 'opacity 0.4s'; t.style.opacity = '0'; }, 1800);
+    setTimeout(function () { t.remove(); }, 2300);
+  }
+
+  // ===== Html escape =====
+  function escHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  // ===== Click delegation: catch clicks on payment dots =====
+  // Dots are inside the Zahlungsübersicht table. They are <span> elements with
+  // circular styling (width/height 14, borderRadius 50%, background green/red).
+  // The containing <td> has a specific parent chain.
+  // We identify them by: <td> inside a <tr> that contains a tenant name + Zimmer
+  // OR more simply: <span> with title="Bezahlt" or title="Offen" (existing App does this).
+
+  function isPaymentDot(el) {
+    if (!el || el.tagName !== 'SPAN') return false;
+    var title = el.getAttribute('title');
+    return title === 'Bezahlt' || title === 'Offen';
+  }
+
+  // Extract tenant + month/year from DOM context
+  function extractContext(dotEl) {
+    // Walk up to <td>
+    var td = dotEl;
+    while (td && td.tagName !== 'TD') td = td.parentElement;
+    if (!td) return null;
+    var tr = td.parentElement;
+    if (!tr || tr.tagName !== 'TR') return null;
+
+    // The first <td> in the tr is the Mieter label (unit · name)
+    var tds = tr.children;
+    if (tds.length < 2) return null;
+    var labelTd = tds[0];
+    var label = (labelTd.textContent || '').trim();
+
+    // Find tenant by matching label
+    var tenants = loadTenants();
+    var tenant = null;
+    for (var i = 0; i < tenants.length; i++) {
+      var t = tenants[i];
+      var tName = t.nameRaw || (t.vorname + ' ' + t.nachname);
+      var fullLabel = (t.unit ? t.unit + ' · ' : '') + tName;
+      if (fullLabel === label) { tenant = t; break; }
+    }
+    // Fallback: try by name only if unit differs slightly
+    if (!tenant) {
+      for (var j = 0; j < tenants.length; j++) {
+        var tn = tenants[j];
+        var tName2 = tn.nameRaw || (tn.vorname + ' ' + tn.nachname);
+        if (label.indexOf(tName2) !== -1) { tenant = tn; break; }
+      }
+    }
+    if (!tenant) { LOG('could not find tenant for label:', label); return null; }
+
+    // Find column index of this td (0 = label, 1..N = months)
+    var colIdx = -1;
+    for (var k = 0; k < tds.length; k++) {
+      if (tds[k] === td) { colIdx = k; break; }
+    }
+    if (colIdx < 1) return null;
+
+    // Read the table header to find which month/year this column represents
+    var table = tr;
+    while (table && table.tagName !== 'TABLE') table = table.parentElement;
+    if (!table) return null;
+    var thead = table.querySelector('thead');
+    if (!thead) return null;
+    var ths = thead.querySelectorAll('th');
+    if (colIdx >= ths.length) return null;
+    var headerText = (ths[colIdx].textContent || '').trim();
+    // Header shows "Apr" "Mär" etc. (short month names).
+    // Neuste Monate links means: col 1 = current month, col 2 = previous, col 3 = 2 months ago, ...
+    var now = new Date();
+    var monthsBack = colIdx - 1;  // 0 for current month
+    var d = new Date(now.getFullYear(), now.getMonth() - monthsBack, 1);
+    var month = d.getMonth();
+    var year = d.getFullYear();
+
+    // Verify header matches (just sanity check)
+    if (MONTHS_SHORT[month].slice(0, 3) !== headerText.slice(0, 3)) {
+      LOG('WARNING: header mismatch:', headerText, 'vs expected', MONTHS_SHORT[month]);
+    }
+
+    // Determine current status
+    var existing = findPayment(tenant.id, month, year).payment;
+    var currentStatus = 'offen';
+    if (existing && existing.paid) {
+      currentStatus = existing.partial ? 'teilweise' : 'bezahlt';
+    }
+
+    return { tenant: tenant, month: month, year: year, currentStatus: currentStatus };
+  }
+
+  function onDotClick(e) {
+    if (!isPaymentDot(e.target)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    var ctx = extractContext(e.target);
+    if (!ctx) { LOG('no context for click'); return; }
+    var rect = e.target.getBoundingClientRect();
+    showContextMenu(rect.right + 6, rect.top, ctx.tenant, ctx.month, ctx.year, ctx.currentStatus, e.target);
+  }
+
+  function installListener() {
+    if (window.__pe_installed) return;
+    window.__pe_installed = true;
+    // Capture phase so we run before React's handlers
+    document.addEventListener('click', onDotClick, true);
+    // Also make dots look clickable
+    var styleEl = document.createElement('style');
+    styleEl.textContent =
+      'span[title="Bezahlt"], span[title="Offen"] { cursor:pointer !important; transition:transform 0.1s; }' +
+      'span[title="Bezahlt"]:hover, span[title="Offen"]:hover { transform:scale(1.3); box-shadow:0 0 0 2px rgba(0,0,0,0.15); }';
+    document.head.appendChild(styleEl);
+    LOG('click listener installed');
+  }
+
+  // ===== Init =====
+  function init() {
+    window.setPaymentStatus = setPaymentStatus;
+    installListener();
+    LOG('module ready');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(init, 500); });
+  } else {
+    setTimeout(init, 500);
+  }
+})();
+
+</script>
+<script id="ruek-dash-module">
+/* Rückstände Dashboard Injection
+ * Injects a compact overview grid above the existing Rückstände view.
+ * Shows ALL tenants with last-N-months payment status on one screen.
+ * Dots are clickable via pay_edit.js (already installed).
+ */
+(function () {
+  'use strict';
+  var LOG = function () {
+    try { console.log.apply(console, ['[ruekdash]'].concat([].slice.call(arguments))); } catch (e) {}
+  };
+
+  var COL_RED = '#C0392B';
+  var COL_DARK = '#0C0F1A';
+  var COL_GRAY = '#8B8A86';
+  var COL_BORDER = '#E8E5DE';
+  var COL_BG = '#F6F5F1';
+  var MONTHS_SHORT = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+
+  function loadCache(key) {
+    try { var v = localStorage.getItem('cache_' + key); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+  }
+
+  function fmt(n) { return Number(n || 0).toLocaleString('de-CH', { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
+
+  // Build matrix: tenants × last N months, with status per cell
+  function buildMatrix(monthsBack) {
+    var tenants = loadCache('pm_tenants') || [];
+    var payments = loadCache('pm_payments') || [];
+    var today = new Date();
+
+    // Active tenants only (endDate in future or null)
+    var active = tenants.filter(function (t) {
+      if (!t.endDate) return true;
+      return new Date(t.endDate) >= today;
+    });
+
+    // Generate month list (newest first)
+    var months = [];
+    for (var i = 0; i < monthsBack; i++) {
+      var d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+      months.push({ month: d.getMonth(), year: d.getFullYear() });
+    }
+
+    // Paid lookup
+    var paidMap = {};
+    for (var p = 0; p < payments.length; p++) {
+      var pay = payments[p];
+      if (pay.paid) {
+        paidMap[pay.tenantId + ':' + pay.year + ':' + pay.month] = pay;
+      }
+    }
+
+    // Build rows: tenant + [status per month]
+    var rows = active.map(function (t) {
+      var rent = Number(t.rent || 0);
+      var tStart = t.startDate ? new Date(t.startDate) : null;
+      var tEnd = t.endDate ? new Date(t.endDate) : null;
+      var cells = months.map(function (m) {
+        var mDate = new Date(m.year, m.month, 1);
+        // If month is before tenant start OR after tenant end → "n/a"
+        if (tStart && mDate < new Date(tStart.getFullYear(), tStart.getMonth(), 1)) return { status: 'na', rent: rent };
+        if (tEnd && mDate > tEnd) return { status: 'na', rent: rent };
+        var pay = paidMap[t.id + ':' + m.year + ':' + m.month];
+        if (pay) {
+          if (pay.partial) return { status: 'teilweise', rent: rent, amount: pay.amount };
+          return { status: 'bezahlt', rent: rent };
+        }
+        return { status: 'offen', rent: rent };
+      });
+      // Count open months (excluding n/a)
+      var openCount = cells.filter(function (c) { return c.status === 'offen'; }).length;
+      var openAmount = openCount * rent;
+      return { tenant: t, cells: cells, openCount: openCount, openAmount: openAmount };
+    });
+
+    // Sort: tenants with rückstand first (by open count desc), then by unit
+    rows.sort(function (a, b) {
+      if (a.openCount !== b.openCount) return b.openCount - a.openCount;
+      return (a.tenant.unit || '').localeCompare(b.tenant.unit || '');
+    });
+
+    return { rows: rows, months: months };
+  }
+
+  function computeStats(matrix) {
+    var rows = matrix.rows;
+    var totalOpen = 0;
+    var totalPaid = 0;
+    var critCount = 0;  // 3+ open
+    var warnCount = 0;  // 2 open
+    var mildCount = 0;  // 1 open
+    var cleanCount = 0; // 0 open
+    rows.forEach(function (r) {
+      totalOpen += r.openAmount;
+      r.cells.forEach(function (c) {
+        if (c.status === 'bezahlt') totalPaid += c.rent;
+        else if (c.status === 'teilweise') totalPaid += (c.amount || 0);
+      });
+      if (r.openCount >= 3) critCount++;
+      else if (r.openCount === 2) warnCount++;
+      else if (r.openCount === 1) mildCount++;
+      else cleanCount++;
+    });
+    return {
+      totalOpen: totalOpen,
+      totalPaid: totalPaid,
+      critCount: critCount,
+      warnCount: warnCount,
+      mildCount: mildCount,
+      cleanCount: cleanCount,
+      totalTenants: rows.length
+    };
+  }
+
+  function renderDashboard(monthsBack) {
+    monthsBack = monthsBack || 3;
+    var matrix = buildMatrix(monthsBack);
+    var stats = computeStats(matrix);
+
+    var headerCells = matrix.months.map(function (m) {
+      return '<th style="text-align:center;padding:8px 4px;font-size:10px;font-weight:700;text-transform:uppercase;color:' + COL_GRAY + ';letter-spacing:0.04em;min-width:40px">' +
+        MONTHS_SHORT[m.month] + '<br/><span style="font-weight:400;font-size:9px">' + String(m.year).slice(-2) + '</span></th>';
+    }).join('');
+
+    var rowsHtml = matrix.rows.map(function (r) {
+      var t = r.tenant;
+      var name = t.nameRaw || (t.vorname + ' ' + t.nachname);
+      var label = (t.unit ? t.unit + ' · ' : '') + name;
+      var rowBg = r.openCount >= 3 ? 'background:#fef2f2' :
+                  r.openCount === 2 ? 'background:#fffbeb' :
+                  r.openCount === 1 ? 'background:#fefce8' : '';
+      var cells = r.cells.map(function (c) {
+        if (c.status === 'na') {
+          return '<td style="text-align:center;padding:6px 4px"><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:#f3f4f6;border:1px solid #e5e7eb"></span></td>';
+        }
+        var bg, title;
+        if (c.status === 'bezahlt') { bg = '#22c55e'; title = 'Bezahlt'; }
+        else if (c.status === 'teilweise') { bg = '#eab308'; title = 'Teilweise bezahlt'; }
+        else { bg = '#ef4444'; title = 'Offen'; }
+        return '<td style="text-align:center;padding:6px 4px">' +
+          '<span title="' + title + '" style="display:inline-block;width:14px;height:14px;border-radius:50%;background:' + bg + ';cursor:pointer"></span>' +
+          '</td>';
+      }).join('');
+      var statusBadge = '';
+      if (r.openCount >= 3) statusBadge = '<span style="background:#dc2626;color:#fff;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;margin-left:8px">' + r.openCount + ' offen</span>';
+      else if (r.openCount === 2) statusBadge = '<span style="background:#f59e0b;color:#fff;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;margin-left:8px">' + r.openCount + ' offen</span>';
+      else if (r.openCount === 1) statusBadge = '<span style="background:#eab308;color:#fff;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;margin-left:8px">1 offen</span>';
+
+      var amountCell = r.openAmount > 0
+        ? '<td style="text-align:right;padding:7px 12px;font-size:12px;font-weight:700;color:' + COL_RED + ';white-space:nowrap">CHF ' + fmt(r.openAmount) + '</td>'
+        : '<td style="text-align:right;padding:7px 12px;font-size:12px;color:#16a34a;font-weight:600">✓ ok</td>';
+
+      return '<tr style="border-bottom:1px solid ' + COL_BORDER + ';' + rowBg + '">' +
+        '<td style="padding:7px 12px;font-size:12px;color:' + COL_DARK + ';white-space:nowrap">' +
+        escHtml(label) + statusBadge +
+        '</td>' +
+        cells +
+        amountCell +
+        '</tr>';
+    }).join('');
+
+    return (
+      '<div id="ruek-dash" style="background:#fff;border-radius:14px;border:1px solid ' + COL_BORDER + ';margin-bottom:20px;overflow:hidden;font-family:\'DM Sans\',system-ui,sans-serif">' +
+
+      // Top: KPIs
+      '<div style="padding:18px 22px 12px;border-bottom:1px solid ' + COL_BORDER + ';display:flex;gap:24px;flex-wrap:wrap;align-items:center">' +
+
+      '<div>' +
+      '<div style="font-size:16px;font-weight:800;color:' + COL_DARK + ';letter-spacing:-0.02em">📊 Übersicht — letzte ' + monthsBack + ' Monate</div>' +
+      '<div style="font-size:12px;color:' + COL_GRAY + ';margin-top:2px">Klick auf Punkt → Status ändern (bezahlt/teilweise/offen)</div>' +
+      '</div>' +
+
+      '<div style="margin-left:auto;display:flex;gap:6px">' +
+      [1, 3, 6, 12].map(function (n) {
+        return '<button class="ruek-range" data-n="' + n + '" style="padding:6px 12px;border-radius:6px;border:1px solid ' + COL_BORDER + ';background:' + (n === monthsBack ? COL_RED : '#fff') + ';color:' + (n === monthsBack ? '#fff' : COL_DARK) + ';font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">' + n + ' Mo.</button>';
+      }).join('') +
+      '</div>' +
+
+      '</div>' +
+
+      // Stats cards
+      '<div style="padding:14px 22px;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;background:' + COL_BG + '">' +
+      statCard('Total offen', 'CHF ' + fmt(stats.totalOpen), '#dc2626', '#fef2f2') +
+      statCard('Kritisch (3+)', stats.critCount + ' Mieter', '#dc2626', '#fef2f2') +
+      statCard('Warnung (2)', stats.warnCount + ' Mieter', '#f59e0b', '#fffbeb') +
+      statCard('Leichter Rückstand (1)', stats.mildCount + ' Mieter', '#eab308', '#fefce8') +
+      statCard('✓ Sauber', stats.cleanCount + ' Mieter', '#16a34a', '#f0fdf4') +
+      '</div>' +
+
+      // Matrix table
+      '<div style="overflow-x:auto">' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<thead>' +
+      '<tr style="background:' + COL_BG + '">' +
+      '<th style="text-align:left;padding:10px 12px;font-size:10px;font-weight:700;text-transform:uppercase;color:' + COL_GRAY + ';letter-spacing:0.04em">Mieter</th>' +
+      headerCells +
+      '<th style="text-align:right;padding:10px 12px;font-size:10px;font-weight:700;text-transform:uppercase;color:' + COL_GRAY + ';letter-spacing:0.04em">Offen</th>' +
+      '</tr>' +
+      '</thead>' +
+      '<tbody>' + rowsHtml + '</tbody>' +
+      '</table>' +
+      '</div>' +
+
+      // Footer legend
+      '<div style="padding:10px 22px;border-top:1px solid ' + COL_BORDER + ';display:flex;gap:18px;flex-wrap:wrap;font-size:11px;color:' + COL_GRAY + '">' +
+      '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;margin-right:4px;vertical-align:middle"></span>Bezahlt</span>' +
+      '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#eab308;margin-right:4px;vertical-align:middle"></span>Teilweise</span>' +
+      '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ef4444;margin-right:4px;vertical-align:middle"></span>Offen</span>' +
+      '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#f3f4f6;border:1px solid #ccc;margin-right:4px;vertical-align:middle"></span>Nicht relevant (vor Mietbeginn/nach Mietende)</span>' +
+      '</div>' +
+
+      '</div>'
+    );
+  }
+
+  function statCard(label, value, color, bg) {
+    return '<div style="background:' + bg + ';padding:10px 14px;border-radius:10px;border:1px solid rgba(0,0,0,0.04)">' +
+      '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:' + COL_GRAY + '">' + label + '</div>' +
+      '<div style="font-size:18px;font-weight:800;color:' + color + ';margin-top:3px">' + value + '</div>' +
+      '</div>';
+  }
+
+  function escHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  // ===== Detection: are we on the Rückstände page? =====
+  // The page has a unique H1/heading like "Mietrückstände" or the sidebar shows Rückstände active.
+  function isOnRueckstaendePage() {
+    // Strategy: look for the "1 Mo. | 2 Mo. | 3 Mo. | 6 Mo." range buttons that only appear on Rückstände
+    var btns = document.querySelectorAll('button');
+    var ranges = 0;
+    for (var i = 0; i < btns.length; i++) {
+      var t = (btns[i].textContent || '').trim();
+      if (/^\d+\s*Mo\.?$/.test(t)) ranges++;
+    }
+    if (ranges >= 3) return true;
+    // Alternative: heading contains "Mietrückstände"
+    var h1s = document.querySelectorAll('h1, h2');
+    for (var j = 0; j < h1s.length; j++) {
+      var s = (h1s[j].textContent || '').toLowerCase();
+      if (s.indexOf('mietrückst') !== -1 || s.indexOf('rückstände') !== -1) return true;
+    }
+    return false;
+  }
+
+  // Find the main content container for Rückstände page
+  function findRueckstaendeContainer() {
+    // Look for the heading, then walk up to find its container
+    var h1s = document.querySelectorAll('h1, h2');
+    for (var i = 0; i < h1s.length; i++) {
+      var s = (h1s[i].textContent || '').toLowerCase();
+      if (s.indexOf('mietrückst') !== -1) {
+        // Find parent that also contains the "GESAMT OFFEN" block
+        var p = h1s[i];
+        for (var j = 0; j < 8 && p; j++) {
+          // The main-content div is usually a direct child of the page layout
+          if (p.parentElement && (p.parentElement.tagName === 'MAIN' ||
+              (p.parentElement.className && String(p.parentElement.className).indexOf('main') !== -1))) {
+            return p;
+          }
+          p = p.parentElement;
+        }
+        return h1s[i].parentElement;
+      }
+    }
+    return null;
+  }
+
+  // ===== Main injection =====
+  var currentRange = 3;
+
+  function ensureDashboard() {
+    if (!isOnRueckstaendePage()) {
+      var old = document.getElementById('ruek-dash');
+      if (old) old.remove();
+      return;
+    }
+
+    var container = findRueckstaendeContainer();
+    if (!container) return;
+
+    var existing = document.getElementById('ruek-dash');
+    if (existing) return; // already inserted
+
+    // Insert dashboard BEFORE the heading's parent (at top of content)
+    var wrapper = document.createElement('div');
+    wrapper.innerHTML = renderDashboard(currentRange);
+    var dash = wrapper.firstChild;
+
+    // Find first sensible insertion point
+    var target = container.parentElement;
+    if (target) {
+      target.insertBefore(dash, container);
+    }
+
+    // Wire range buttons
+    dash.querySelectorAll('.ruek-range').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        currentRange = parseInt(btn.getAttribute('data-n'), 10);
+        var old = document.getElementById('ruek-dash');
+        if (old) old.remove();
+        ensureDashboard();
+      });
+    });
+
+    LOG('dashboard injected, range:', currentRange);
+  }
+
+  // Slow polling (matches vorlagen.js approach — avoid MutationObserver loops)
+  function init() {
+    // Poll for navigation changes
+    setInterval(function () {
+      try { ensureDashboard(); } catch (e) { LOG('ensure failed', e); }
+    }, 800);
+    // Initial attempts
+    [300, 800, 1500, 3000].forEach(function (d) {
+      setTimeout(function () { try { ensureDashboard(); } catch (e) {} }, d);
+    });
+
+    // Also listen for payment changes → refresh dashboard
+    // (pay_edit.js updates localStorage, we poll it)
+    var lastPaymentsSignature = '';
+    setInterval(function () {
+      if (!document.getElementById('ruek-dash')) return;
+      try {
+        var sig = localStorage.getItem('cache_pm_payments') || '';
+        if (sig !== lastPaymentsSignature) {
+          lastPaymentsSignature = sig;
+          var old = document.getElementById('ruek-dash');
+          if (old) {
+            old.remove();
+            ensureDashboard();
+          }
+        }
+      } catch (e) {}
+    }, 2000);
+
+    LOG('module ready');
   }
 
   if (document.readyState === 'loading') {
