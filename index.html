@@ -655,6 +655,9 @@ react-dom/cjs/react-dom-client.production.js:
 
 
 
+
+
+
 <script id="letterhead-module">
 /* Letterhead — Shared template matching invoice exactly */
 (function () {
@@ -6319,6 +6322,535 @@ react-dom/cjs/react-dom-client.production.js:
     [300, 1000, 2500].forEach(function (d) { setTimeout(poll, d); });
     // DSGVO check once on load
     setTimeout(checkDSGVO, 5000);
+    LOG('module ready');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(init, 600); });
+  } else {
+    setTimeout(init, 600);
+  }
+})();
+
+</script>
+<script id="events-module">
+/* Events & Erinnerungen Module
+ * Adds event management to the Kalender tab.
+ * Event types: Reparatur, Besichtigung, Check-in/out, Vertragstermine, Eigene
+ * Events can be linked to a tenant/room or be general.
+ * Shows upcoming events with reminders (badge on sidebar + banner).
+ * Stores in pm_events (localStorage + Supabase).
+ */
+(function () {
+  'use strict';
+  var LOG = function () {
+    try { console.log.apply(console, ['[events]'].concat([].slice.call(arguments))); } catch (e) {}
+  };
+
+  var COL_RED = '#C0392B';
+  var COL_DARK = '#0C0F1A';
+  var COL_GRAY = '#8B8A86';
+  var COL_BORDER = '#E8E5DE';
+  var COL_BG = '#F6F5F1';
+
+  var CATEGORIES = [
+    { id: 'reparatur', label: '🔧 Reparatur / Handwerker', color: '#dc2626', bg: '#fef2f2' },
+    { id: 'besichtigung', label: '👁 Besichtigung', color: '#7c3aed', bg: '#f5f3ff' },
+    { id: 'checkin', label: '📥 Check-in', color: '#059669', bg: '#ecfdf5' },
+    { id: 'checkout', label: '📤 Check-out', color: '#d97706', bg: '#fffbeb' },
+    { id: 'vertrag', label: '📋 Vertragstermin', color: '#2563eb', bg: '#eff6ff' },
+    { id: 'reinigung', label: '🧹 Reinigung', color: '#0891b2', bg: '#ecfeff' },
+    { id: 'zahlung', label: '💰 Zahlungsfrist', color: '#16a34a', bg: '#f0fdf4' },
+    { id: 'sonstiges', label: '📌 Sonstiges', color: '#6b7280', bg: '#f9fafb' }
+  ];
+
+  function catById(id, customLabel) {
+    if (id === 'custom') return { id: 'custom', label: '🏷 ' + (customLabel || 'Eigene'), color: '#6b7280', bg: '#f9fafb' };
+    for (var i = 0; i < CATEGORIES.length; i++) if (CATEGORIES[i].id === id) return CATEGORIES[i];
+    return CATEGORIES[CATEGORIES.length - 1];
+  }
+
+  // Storage
+  function loadCache(key) {
+    try { var v = localStorage.getItem('cache_' + key); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+  }
+  function saveCache(key, value) {
+    try { localStorage.setItem('cache_' + key, JSON.stringify(value)); } catch (e) {}
+  }
+  function supaPush(key, value) {
+    try {
+      var c = JSON.parse(localStorage.getItem('_supa_cfg') || 'null');
+      if (!c) return;
+      fetch(c.url + '/rest/v1/pm_kv', {
+        method: 'POST',
+        headers: { apikey: c.key, Authorization: 'Bearer ' + c.key, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify({ key: key, value: JSON.stringify(value), updated_at: new Date().toISOString() })
+      }).catch(function () {});
+    } catch (e) {}
+  }
+
+  function loadEvents() { return loadCache('pm_events') || []; }
+  function saveEvents(arr) { saveCache('pm_events', arr); supaPush('pm_events', arr); }
+  function loadTenants() { return loadCache('pm_tenants') || []; }
+
+  function genId() { return 'ev_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function today() { return new Date().toISOString().slice(0, 10); }
+  function toSwiss(s) { if (!s) return ''; var m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? m[3] + '.' + m[2] + '.' + m[1] : s; }
+  function daysUntil(dateStr) {
+    var d = new Date(dateStr);
+    var t = new Date(); t.setHours(0, 0, 0, 0);
+    return Math.ceil((d - t) / 86400000);
+  }
+  function toast(msg) {
+    var t = document.createElement('div');
+    t.textContent = msg;
+    t.style.cssText = 'position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:#0c0f1a;color:#fff;padding:12px 22px;border-radius:999px;font-size:13px;font-family:"DM Sans",system-ui,sans-serif;z-index:99999;box-shadow:0 10px 30px rgba(0,0,0,0.3)';
+    document.body.appendChild(t);
+    setTimeout(function () { t.style.transition = 'opacity 0.4s'; t.style.opacity = '0'; }, 2000);
+    setTimeout(function () { t.remove(); }, 2500);
+  }
+
+  // ===== Event CRUD =====
+  function addEvent(ev) {
+    var arr = loadEvents();
+    ev.id = ev.id || genId();
+    ev.createdAt = new Date().toISOString();
+    arr.push(ev);
+    saveEvents(arr);
+    LOG('added event', ev.id, ev.title);
+    return ev;
+  }
+  function updateEvent(id, updates) {
+    var arr = loadEvents();
+    for (var i = 0; i < arr.length; i++) {
+      if (arr[i].id === id) { Object.assign(arr[i], updates, { updatedAt: new Date().toISOString() }); break; }
+    }
+    saveEvents(arr);
+  }
+  function deleteEvent(id) {
+    var arr = loadEvents().filter(function (e) { return e.id !== id; });
+    saveEvents(arr);
+  }
+  function toggleDone(id) {
+    var arr = loadEvents();
+    for (var i = 0; i < arr.length; i++) {
+      if (arr[i].id === id) { arr[i].done = !arr[i].done; arr[i].doneAt = arr[i].done ? new Date().toISOString() : null; break; }
+    }
+    saveEvents(arr);
+  }
+
+  // ===== Create Event Dialog =====
+  function openCreateDialog(prefill) {
+    if (document.getElementById('ev-create-dialog')) return;
+    prefill = prefill || {};
+    var tenants = loadTenants();
+    var now = new Date();
+    var activeTenants = tenants.filter(function (t) { return !t.endDate || new Date(t.endDate) >= now; });
+
+    var catOpts = CATEGORIES.map(function (c) {
+      return '<option value="' + c.id + '"' + (prefill.category === c.id ? ' selected' : '') + '>' + esc(c.label) + '</option>';
+    }).join('');
+    // Show custom text field when "Sonstiges" is chosen
+    var isCustom = prefill.category === 'sonstiges' && prefill.customLabel;
+    var showCustomField = prefill.category === 'sonstiges' || !!prefill.customLabel;
+
+    var tenantOpts = '<option value="">— Kein Mieter (allgemein) —</option>' +
+      activeTenants.map(function (t) {
+        var name = t.nameRaw || (t.vorname + ' ' + t.nachname);
+        return '<option value="' + esc(t.id) + '"' + (prefill.tenantId === t.id ? ' selected' : '') + '>' + esc((t.unit || '—') + ' — ' + name) + '</option>';
+      }).join('');
+
+    var reminderOpts = [
+      { val: '0', label: 'Am selben Tag' },
+      { val: '1', label: '1 Tag vorher' },
+      { val: '3', label: '3 Tage vorher' },
+      { val: '7', label: '1 Woche vorher' },
+      { val: '14', label: '2 Wochen vorher' }
+    ].map(function (o) {
+      return '<option value="' + o.val + '"' + ((prefill.reminderDays || '1') === o.val ? ' selected' : '') + '>' + o.label + '</option>';
+    }).join('');
+
+    var overlay = document.createElement('div');
+    overlay.id = 'ev-create-dialog';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:99996;display:flex;align-items:flex-start;justify-content:center;padding:30px 20px;overflow-y:auto;font-family:"DM Sans",system-ui,sans-serif;';
+
+    overlay.innerHTML =
+      '<div style="background:#fff;border-radius:16px;max-width:520px;width:100%;box-shadow:0 24px 80px rgba(0,0,0,0.3);">' +
+      '<div style="padding:22px 26px;border-bottom:1px solid ' + COL_BORDER + ';display:flex;justify-content:space-between;align-items:center;">' +
+      '<div style="font-size:18px;font-weight:700;">📅 ' + (prefill.id ? 'Event bearbeiten' : 'Neues Event') + '</div>' +
+      '<button id="ev-cd-close" style="width:32px;height:32px;border-radius:50%;border:1px solid ' + COL_BORDER + ';background:#fff;font-size:18px;cursor:pointer;">×</button>' +
+      '</div>' +
+      '<div style="padding:22px 26px;">' +
+
+      field('Titel', '<input type="text" id="ev-cd-title" value="' + esc(prefill.title || '') + '" placeholder="z.B. Boiler reparieren" style="' + inputStyle + '"/>') +
+
+      '<div style="display:flex;gap:12px">' +
+      field('Datum', '<input type="date" id="ev-cd-date" value="' + (prefill.date || today()) + '" style="' + inputStyle + '"/>', '1') +
+      field('Uhrzeit (optional)', '<input type="time" id="ev-cd-time" value="' + (prefill.time || '') + '" style="' + inputStyle + '"/>', '1') +
+      '</div>' +
+
+      field('Kategorie', '<select id="ev-cd-cat" style="' + inputStyle + '">' + catOpts + '</select>' +
+        '<input type="text" id="ev-cd-custom-label" placeholder="z.B. Heizungswartung, Schlüsselübergabe..." value="' + esc(prefill.customLabel || '') + '" style="' + inputStyle + 'display:' + (showCustomField ? 'block' : 'none') + ';margin-top:-8px;"/>') +
+      field('Mieter / Zimmer (optional)', '<select id="ev-cd-tenant" style="' + inputStyle + '">' + tenantOpts + '</select>') +
+      field('Erinnerung', '<select id="ev-cd-reminder" style="' + inputStyle + '">' + reminderOpts + '</select>') +
+      field('Notizen (optional)', '<textarea id="ev-cd-notes" rows="3" placeholder="Details, Kontaktinfos, Kosten..." style="' + inputStyle + 'resize:vertical;min-height:60px;">' + esc(prefill.notes || '') + '</textarea>') +
+
+      '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;">' +
+      (prefill.id ? '<button id="ev-cd-delete" style="padding:10px 18px;border-radius:8px;border:1px solid #fecaca;background:#fef2f2;color:#dc2626;cursor:pointer;font-size:13px;margin-right:auto;">🗑 Löschen</button>' : '') +
+      '<button id="ev-cd-cancel" style="padding:10px 18px;border-radius:8px;border:1px solid ' + COL_BORDER + ';background:#fff;cursor:pointer;font-size:13px;">Abbrechen</button>' +
+      '<button id="ev-cd-save" style="padding:10px 18px;border-radius:8px;border:none;background:' + COL_RED + ';color:#fff;cursor:pointer;font-size:13px;font-weight:600;">💾 Speichern</button>' +
+      '</div>' +
+      '</div></div>';
+
+    document.body.appendChild(overlay);
+    var close = function () { overlay.remove(); };
+    document.getElementById('ev-cd-close').addEventListener('click', close);
+    document.getElementById('ev-cd-cancel').addEventListener('click', close);
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+
+    // Show/hide custom category input when Sonstiges selected
+    var catSelect = document.getElementById('ev-cd-cat');
+    var customInput = document.getElementById('ev-cd-custom-label');
+    catSelect.addEventListener('change', function () {
+      customInput.style.display = catSelect.value === 'sonstiges' ? 'block' : 'none';
+      if (catSelect.value === 'sonstiges') customInput.focus();
+    });
+
+    if (prefill.id) {
+      document.getElementById('ev-cd-delete').addEventListener('click', function () {
+        if (confirm('Event wirklich löschen?')) { deleteEvent(prefill.id); close(); refreshView(); toast('🗑 Event gelöscht'); }
+      });
+    }
+
+    document.getElementById('ev-cd-save').addEventListener('click', function () {
+      var title = document.getElementById('ev-cd-title').value.trim();
+      var date = document.getElementById('ev-cd-date').value;
+      if (!title) { alert('Bitte Titel eingeben.'); return; }
+      if (!date) { alert('Bitte Datum wählen.'); return; }
+
+      var catVal = document.getElementById('ev-cd-cat').value;
+      var customLabel = document.getElementById('ev-cd-custom-label').value.trim();
+
+      var ev = {
+        id: prefill.id || undefined,
+        title: title,
+        date: date,
+        time: document.getElementById('ev-cd-time').value || '',
+        category: catVal,
+        customLabel: catVal === 'sonstiges' ? customLabel : '',
+        tenantId: document.getElementById('ev-cd-tenant').value || null,
+        reminderDays: parseInt(document.getElementById('ev-cd-reminder').value, 10),
+        notes: document.getElementById('ev-cd-notes').value.trim(),
+        done: prefill.done || false
+      };
+
+      if (prefill.id) {
+        updateEvent(prefill.id, ev);
+        toast('✓ Event aktualisiert');
+      } else {
+        addEvent(ev);
+        toast('✓ Event erstellt');
+      }
+      close();
+      refreshView();
+    });
+  }
+
+  var inputStyle = 'width:100%;padding:10px 12px;border:1.5px solid ' + COL_BORDER + ';border-radius:8px;font-size:14px;font-family:inherit;margin-bottom:14px;';
+  function field(label, html, flex) {
+    return '<div' + (flex ? ' style="flex:' + flex + '"' : '') + '>' +
+      '<label style="display:block;font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:' + COL_GRAY + ';margin-bottom:6px">' + label + '</label>' +
+      html + '</div>';
+  }
+
+  // ===== Event List Rendering =====
+  function renderEventList() {
+    var events = loadEvents();
+    var tenants = loadTenants();
+    var tMap = {};
+    tenants.forEach(function (t) { tMap[t.id] = t; });
+
+    // Sort: upcoming first (by date asc), done at bottom
+    events.sort(function (a, b) {
+      if (a.done !== b.done) return a.done ? 1 : -1;
+      return (a.date + (a.time || '')) < (b.date + (b.time || '')) ? -1 : 1;
+    });
+
+    var todayStr = today();
+    var upcoming = events.filter(function (e) { return !e.done && e.date >= todayStr; });
+    var overdue = events.filter(function (e) { return !e.done && e.date < todayStr; });
+    var done = events.filter(function (e) { return e.done; });
+
+    var html = '<div id="ev-section" style="margin-top:24px;font-family:\'DM Sans\',system-ui,sans-serif">' +
+
+      // Header
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">' +
+      '<div>' +
+      '<div style="font-size:20px;font-weight:800;color:' + COL_DARK + ';letter-spacing:-0.02em">📅 Termine & Erinnerungen</div>' +
+      '<div style="font-size:12px;color:' + COL_GRAY + ';margin-top:2px">' + events.length + ' Events total · ' + overdue.length + ' überfällig · ' + upcoming.length + ' anstehend</div>' +
+      '</div>' +
+      '<button id="ev-new-btn" style="padding:10px 18px;border-radius:8px;border:none;background:' + COL_RED + ';color:#fff;cursor:pointer;font-size:13px;font-weight:600;font-family:inherit">+ Neues Event</button>' +
+      '</div>';
+
+    // Overdue section
+    if (overdue.length > 0) {
+      html += '<div style="margin-bottom:16px">' +
+        '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#dc2626;margin-bottom:8px">⚠ Überfällig (' + overdue.length + ')</div>' +
+        overdue.map(function (e) { return renderEventCard(e, tMap, true); }).join('') +
+        '</div>';
+    }
+
+    // Upcoming section
+    if (upcoming.length > 0) {
+      html += '<div style="margin-bottom:16px">' +
+        '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:' + COL_DARK + ';margin-bottom:8px">Anstehend (' + upcoming.length + ')</div>' +
+        upcoming.map(function (e) { return renderEventCard(e, tMap, false); }).join('') +
+        '</div>';
+    }
+
+    // Done section (collapsible)
+    if (done.length > 0) {
+      html += '<details style="margin-bottom:16px">' +
+        '<summary style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:' + COL_GRAY + ';cursor:pointer;margin-bottom:8px">✓ Erledigt (' + done.length + ')</summary>' +
+        done.map(function (e) { return renderEventCard(e, tMap, false); }).join('') +
+        '</details>';
+    }
+
+    // Empty state
+    if (events.length === 0) {
+      html += '<div style="text-align:center;padding:40px 20px;color:' + COL_GRAY + '">' +
+        '<div style="font-size:36px;margin-bottom:8px">📅</div>' +
+        '<div style="font-size:14px">Keine Events vorhanden</div>' +
+        '<div style="font-size:12px;margin-top:4px">Erstelle dein erstes Event mit dem Button oben.</div>' +
+        '</div>';
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  function renderEventCard(ev, tMap, isOverdue) {
+    var cat = catById(ev.category, ev.customLabel);
+    var tenant = ev.tenantId ? tMap[ev.tenantId] : null;
+    var tenantLabel = tenant ? (tenant.unit || '') + ' · ' + (tenant.nameRaw || tenant.vorname + ' ' + tenant.nachname) : '';
+    var days = daysUntil(ev.date);
+    var daysLabel = '';
+    if (ev.done) daysLabel = '<span style="color:#16a34a">✓ erledigt</span>';
+    else if (days === 0) daysLabel = '<span style="color:#dc2626;font-weight:700">Heute</span>';
+    else if (days === 1) daysLabel = '<span style="color:#d97706;font-weight:600">Morgen</span>';
+    else if (days < 0) daysLabel = '<span style="color:#dc2626;font-weight:700">' + Math.abs(days) + ' Tage überfällig</span>';
+    else if (days <= 7) daysLabel = '<span style="color:#d97706">In ' + days + ' Tagen</span>';
+    else daysLabel = '<span style="color:' + COL_GRAY + '">In ' + days + ' Tagen</span>';
+
+    var borderColor = isOverdue ? '#fecaca' : (ev.done ? '#d1fae5' : COL_BORDER);
+    var bg = isOverdue ? '#fef2f2' : (ev.done ? '#f0fdf4' : '#fff');
+
+    return '<div class="ev-card" data-id="' + ev.id + '" style="display:flex;align-items:center;gap:12px;padding:12px 16px;border:1px solid ' + borderColor + ';border-radius:10px;margin-bottom:8px;background:' + bg + ';cursor:pointer;transition:box-shadow 0.15s" ' +
+      'onmouseover="this.style.boxShadow=\'0 4px 16px rgba(0,0,0,0.08)\'" onmouseout="this.style.boxShadow=\'none\'">' +
+
+      // Checkbox
+      '<div class="ev-check" data-id="' + ev.id + '" style="width:22px;height:22px;border-radius:6px;border:2px solid ' + (ev.done ? '#16a34a' : COL_BORDER) + ';background:' + (ev.done ? '#dcfce7' : '#fff') + ';display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;font-size:12px">' +
+      (ev.done ? '✓' : '') + '</div>' +
+
+      // Category badge
+      '<div style="padding:4px 10px;border-radius:999px;background:' + cat.bg + ';color:' + cat.color + ';font-size:10px;font-weight:700;white-space:nowrap">' + esc(ev.customLabel ? '📌 ' + ev.customLabel : cat.label) + '</div>' +
+
+      // Content
+      '<div style="flex:1;min-width:0">' +
+      '<div style="font-size:13px;font-weight:600;color:' + COL_DARK + ';' + (ev.done ? 'text-decoration:line-through;opacity:0.6;' : '') + '">' + esc(ev.title) + '</div>' +
+      (tenantLabel ? '<div style="font-size:11px;color:' + COL_GRAY + ';margin-top:2px">' + esc(tenantLabel) + '</div>' : '') +
+      '</div>' +
+
+      // Date + countdown
+      '<div style="text-align:right;flex-shrink:0">' +
+      '<div style="font-size:12px;font-weight:600;color:' + COL_DARK + '">' + toSwiss(ev.date) + (ev.time ? ' ' + ev.time : '') + '</div>' +
+      '<div style="font-size:10px;margin-top:2px">' + daysLabel + '</div>' +
+      '</div>' +
+
+      '</div>';
+  }
+
+  // ===== Injection into Kalender page =====
+  function isOnKalenderPage() {
+    var h1s = document.querySelectorAll('h1, h2, [class*="title"]');
+    for (var i = 0; i < h1s.length; i++) {
+      var t = (h1s[i].textContent || '').toLowerCase();
+      if (t.indexOf('belegungskalender') !== -1 || t.indexOf('zimmerbelegung') !== -1) return true;
+    }
+    return false;
+  }
+
+  function refreshView() {
+    var old = document.getElementById('ev-section');
+    if (old) old.remove();
+    injectEventSection();
+  }
+
+  function injectEventSection() {
+    if (!isOnKalenderPage()) {
+      var old = document.getElementById('ev-section');
+      if (old) old.remove();
+      return;
+    }
+    if (document.getElementById('ev-section')) return;
+
+    // Find main content container
+    var main = document.querySelector('.page-padding') || document.querySelector('main');
+    if (!main) {
+      // Fallback: find the belegungskalender heading and go up
+      var h1s = document.querySelectorAll('h1, h2');
+      for (var i = 0; i < h1s.length; i++) {
+        if ((h1s[i].textContent || '').indexOf('Belegungskalender') !== -1) {
+          main = h1s[i].parentElement;
+          break;
+        }
+      }
+    }
+    if (!main) return;
+
+    var wrapper = document.createElement('div');
+    wrapper.innerHTML = renderEventList();
+    var section = wrapper.firstChild;
+    main.appendChild(section);
+
+    // Wire "New Event" button
+    var newBtn = document.getElementById('ev-new-btn');
+    if (newBtn) {
+      newBtn.addEventListener('click', function () { openCreateDialog(); });
+    }
+
+    // Wire card clicks (edit) and checkbox clicks (toggle done)
+    section.querySelectorAll('.ev-card').forEach(function (card) {
+      card.addEventListener('click', function (e) {
+        // Check if checkbox was clicked
+        var check = e.target.closest('.ev-check');
+        if (check) {
+          e.stopPropagation();
+          toggleDone(check.getAttribute('data-id'));
+          refreshView();
+          return;
+        }
+        // Otherwise open edit dialog
+        var id = card.getAttribute('data-id');
+        var ev = loadEvents().find(function (x) { return x.id === id; });
+        if (ev) openCreateDialog(ev);
+      });
+    });
+
+    LOG('event section injected');
+  }
+
+  // ===== Reminder Badge on Sidebar =====
+  function updateSidebarBadge() {
+    var events = loadEvents();
+    var todayStr = today();
+    var upcoming = events.filter(function (e) {
+      if (e.done) return false;
+      var days = daysUntil(e.date);
+      return days <= e.reminderDays && days >= -7; // show reminder if within reminder window or max 7 days overdue
+    });
+
+    if (upcoming.length === 0) return;
+
+    // Find "Kalender" text in sidebar and add badge
+    var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    var node;
+    while (node = walker.nextNode()) {
+      if (node.nodeValue && node.nodeValue.trim() === 'Kalender') {
+        var p = node.parentElement;
+        // Check sidebar context
+        var isSidebar = false;
+        var pp = p;
+        for (var i = 0; i < 8 && pp; i++) {
+          var tag = (pp.tagName || '').toLowerCase();
+          var cls = (pp.className && typeof pp.className === 'string' ? pp.className : '').toLowerCase();
+          if (tag === 'nav' || tag === 'aside' || cls.indexOf('sidebar') !== -1) { isSidebar = true; break; }
+          pp = pp.parentElement;
+        }
+        if (!isSidebar) continue;
+
+        // Find the row container to add badge
+        var row = p;
+        for (var j = 0; j < 4 && row; j++) {
+          if (row.parentElement && row.parentElement.children.length >= 3) break;
+          row = row.parentElement;
+        }
+        if (!row) continue;
+
+        // Remove old badge
+        var oldBadge = row.querySelector('.ev-sidebar-badge');
+        if (oldBadge) oldBadge.remove();
+
+        // Add badge
+        var badge = document.createElement('span');
+        badge.className = 'ev-sidebar-badge';
+        badge.style.cssText = 'background:' + COL_RED + ';color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:999px;margin-left:auto;flex-shrink:0;';
+        badge.textContent = upcoming.length;
+        row.style.display = 'flex';
+        row.style.alignItems = 'center';
+        row.appendChild(badge);
+        break;
+      }
+    }
+  }
+
+  // ===== Reminder Banner (top of page) =====
+  function showReminderBanner() {
+    if (document.getElementById('ev-reminder-banner')) return;
+    var events = loadEvents();
+    var reminders = events.filter(function (e) {
+      if (e.done) return false;
+      var days = daysUntil(e.date);
+      return days <= e.reminderDays && days >= -3;
+    });
+    if (reminders.length === 0) return;
+
+    // Group: overdue vs today vs upcoming
+    var overdue = reminders.filter(function (e) { return daysUntil(e.date) < 0; });
+    var todayEvents = reminders.filter(function (e) { return daysUntil(e.date) === 0; });
+    var soonEvents = reminders.filter(function (e) { return daysUntil(e.date) > 0; });
+
+    var parts = [];
+    if (overdue.length > 0) parts.push('⚠ ' + overdue.length + ' überfällig');
+    if (todayEvents.length > 0) parts.push('📅 ' + todayEvents.length + ' heute');
+    if (soonEvents.length > 0) parts.push('🔔 ' + soonEvents.length + ' bald');
+
+    var banner = document.createElement('div');
+    banner.id = 'ev-reminder-banner';
+    banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:linear-gradient(135deg,' + COL_RED + ',#991b1b);color:#fff;padding:10px 20px;font-size:13px;font-family:"DM Sans",system-ui,sans-serif;z-index:99980;display:flex;align-items:center;gap:12px;box-shadow:0 4px 12px rgba(0,0,0,0.2)';
+    banner.innerHTML =
+      '<div style="flex:1"><strong>Erinnerungen:</strong> ' + parts.join(' · ') + '</div>' +
+      '<button id="ev-banner-close" style="background:rgba(255,255,255,0.2);border:none;color:#fff;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px">✕ Ausblenden</button>';
+    document.body.appendChild(banner);
+    document.getElementById('ev-banner-close').addEventListener('click', function () { banner.remove(); });
+
+    // Push page content down
+    document.body.style.marginTop = '42px';
+    LOG('reminder banner shown:', parts.join(', '));
+  }
+
+  // ===== Init =====
+  function init() {
+    window.openEventDialog = openCreateDialog;
+
+    // Polling for page changes
+    setInterval(function () {
+      try { injectEventSection(); } catch (e) {}
+    }, 1000);
+    [300, 800, 2000].forEach(function (d) {
+      setTimeout(function () { try { injectEventSection(); } catch (e) {} }, d);
+    });
+
+    // Badge + banner
+    setTimeout(function () {
+      try { updateSidebarBadge(); } catch (e) {}
+      try { showReminderBanner(); } catch (e) {}
+    }, 2000);
+    setInterval(function () {
+      try { updateSidebarBadge(); } catch (e) {}
+    }, 8000);
+
     LOG('module ready');
   }
 
