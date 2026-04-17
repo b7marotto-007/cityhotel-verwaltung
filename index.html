@@ -659,6 +659,7 @@ react-dom/cjs/react-dom-client.production.js:
 
 
 
+
 <script id="letterhead-module">
 /* Letterhead — Shared template matching invoice exactly */
 (function () {
@@ -758,10 +759,10 @@ react-dom/cjs/react-dom-client.production.js:
     return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><title>' + esc(opts.title || 'Brief') + '</title>' +
       '<style>@page{margin:0;size:A4}*{box-sizing:border-box;margin:0;padding:0}' +
       'body{print-color-adjust:exact;-webkit-print-color-adjust:exact;font-family:\'Helvetica Neue\',Arial,sans-serif;font-size:10px;color:#1a1a1a;line-height:1.55}' +
-      'p{margin-bottom:3mm}' +
-      'table{width:100%;border-collapse:collapse;margin:4mm 0;font-size:11px}' +
-      'th{text-align:left;padding:8px 6px;border-bottom:2px solid #1a1a1a;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:0.06em}' +
-      'td{padding:7px 6px;border-bottom:0.5px solid #eee}' +
+      'p{margin-bottom:3mm;text-align:left}' +
+      'table{width:100%;border-collapse:collapse;margin:3mm 0;font-size:11px;text-align:left}' +
+      'th{text-align:left;padding:7px 6px;border-bottom:2px solid #1a1a1a;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:0.06em}' +
+      'td{padding:6px;border-bottom:0.5px solid #eee;text-align:left}' +
       '</style></head><body>' +
       '<div style="display:flex;width:794px;min-height:1123px;background:#fff">' +
 
@@ -807,13 +808,13 @@ react-dom/cjs/react-dom-client.production.js:
       '</div>' +
 
       // Big title (like "Rechnung 2026-001")
-      (opts.docTitle ? '<h1 style="font-size:26px;font-weight:800;letter-spacing:-0.02em;margin:8mm 0 4mm;color:#1a1a1a">' + esc(opts.docTitle) + '</h1>' : '') +
+      (opts.docTitle ? '<h1 style="font-size:26px;font-weight:800;letter-spacing:-0.02em;margin:4mm 0 3mm;color:#1a1a1a;text-align:left">' + esc(opts.docTitle) + '</h1>' : '') +
 
       // Subtitle (like "Liegenschaft:" / "Betreff:")
       (opts.subtitle ? '<div style="font-size:10px;line-height:1.7;margin-bottom:6mm">' + opts.subtitle + '</div>' : '') +
 
       // Body
-      '<div style="font-size:10px;line-height:1.65">' + (opts.bodyHTML || '') + '</div>' +
+      '<div style="font-size:10px;line-height:1.65;text-align:left">' + (opts.bodyHTML || '') + '</div>' +
 
       // Signature
       sigHTML +
