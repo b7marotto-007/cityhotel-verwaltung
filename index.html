@@ -661,6 +661,7 @@ react-dom/cjs/react-dom-client.production.js:
 
 
 
+
 <script id="letterhead-module">
 /* Letterhead — Shared template matching invoice exactly */
 (function () {
@@ -7453,6 +7454,215 @@ react-dom/cjs/react-dom-client.production.js:
     document.addEventListener('DOMContentLoaded', function () { setTimeout(init, 600); });
   } else {
     setTimeout(init, 600);
+  }
+})();
+
+</script>
+<script id="zs-fix-module">
+/* QR-Rechnung Zahlungsstelle Fix
+ * The live preview doesn't include zahlungsstelle fields from the tenant.
+ * This module watches the preview and patches "Zahlbar durch" to show
+ * the correct zahlungsstelle when the tenant has one configured.
+ */
+(function () {
+  'use strict';
+  var LOG = function () {
+    try { console.log.apply(console, ['[zs-fix]'].concat([].slice.call(arguments))); } catch (e) {}
+  };
+
+  function loadTenants() {
+    try { var v = localStorage.getItem('cache_pm_tenants'); return v ? JSON.parse(v) : []; } catch (e) { return []; }
+  }
+
+  // Find the currently selected tenant in the QR-Rechnung form
+  function getSelectedTenant() {
+    // The form has a "MIETER WÄHLEN" dropdown. Find the selected option.
+    var selects = document.querySelectorAll('select');
+    var tenants = loadTenants();
+    if (!tenants.length) return null;
+
+    for (var i = 0; i < selects.length; i++) {
+      var sel = selects[i];
+      var val = sel.value;
+      if (!val) continue;
+      // Check if this value matches a tenant id
+      var tenant = tenants.find(function (t) { return t.id === val; });
+      if (tenant && tenant.zahlungsstelleName && tenant.zahlungsstelleName.trim()) {
+        return tenant;
+      }
+    }
+    return null;
+  }
+
+  // Find "Zahlbar durch" labels in the QR preview and fix the content below them
+  function patchPreview() {
+    var tenant = getSelectedTenant();
+    if (!tenant) return;
+
+    var zsName = tenant.zahlungsstelleName || '';
+    var zsAdresse = tenant.zahlungsstelleAdresse || '';
+    var zsPlz = tenant.zahlungsstellePlz || '';
+    var zsStadt = tenant.zahlungsstelleStadt || '';
+    if (!zsName.trim()) return;
+
+    // Find all "ZAHLBAR DURCH" or "Zahlbar durch" text nodes in the preview
+    var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    var matches = [];
+    var node;
+    while (node = walker.nextNode()) {
+      var txt = (node.nodeValue || '').trim().toUpperCase();
+      if (txt === 'ZAHLBAR DURCH') {
+        matches.push(node);
+      }
+    }
+
+    if (!matches.length) return;
+
+    matches.forEach(function (textNode) {
+      // The data below "Zahlbar durch" is in the next sibling div
+      var label = textNode.parentElement;
+      if (!label) return;
+      var dataDiv = label.nextElementSibling;
+      if (!dataDiv) return;
+
+      // Check if already patched
+      if (dataDiv.getAttribute('data-zs-patched') === zsName) return;
+
+      // Get the current content — it shows empfaenger data
+      // Replace with zahlungsstelle
+      var fullAddress = zsAdresse;
+      var plzStadt = '';
+      if (zsPlz || zsStadt) {
+        plzStadt = (zsPlz + ' ' + zsStadt).trim();
+      }
+
+      // Build new content preserving the existing element structure (br tags)
+      var children = dataDiv.childNodes;
+      var textParts = [zsName, fullAddress, plzStadt].filter(Boolean);
+
+      // Clear and rebuild
+      dataDiv.innerHTML = '';
+      for (var i = 0; i < textParts.length; i++) {
+        if (i > 0) dataDiv.appendChild(document.createElement('br'));
+        dataDiv.appendChild(document.createTextNode(textParts[i]));
+      }
+
+      dataDiv.setAttribute('data-zs-patched', zsName);
+    });
+
+    if (matches.length > 0) {
+      LOG('patched', matches.length, 'Zahlbar-durch sections for', zsName);
+    }
+  }
+
+  // Polling — check every 500ms when on QR-Rechnung page
+  function isOnRechnungPage() {
+    var headings = document.querySelectorAll('h1, h2, [class*="title"]');
+    for (var i = 0; i < headings.length; i++) {
+      var t = (headings[i].textContent || '').trim();
+      if (t === 'QR-Rechnung' || t.indexOf('Schweizer QR-Rechnung') !== -1) return true;
+    }
+    // Also check for "Live-Vorschau" text
+    var body = document.body.textContent || '';
+    return body.indexOf('Live-Vorschau') !== -1 && body.indexOf('QR-Code aktualisiert') !== -1;
+  }
+
+  var patchInterval = null;
+
+  function startPatcher() {
+    if (patchInterval) return;
+    patchInterval = setInterval(function () {
+      if (isOnRechnungPage()) {
+        try { patchPreview(); } catch (e) {}
+      }
+    }, 600);
+  }
+
+  // Also patch the Ju (print) function to inject zahlungsstelle into the invoice object
+  function patchPrintFunction() {
+    if (window.__zs_ju_patched) return;
+    // Ju is called as Ju(ie, qrDataUrl, windowRef)
+    // It's a global function in the bundle — we need to find and wrap it.
+    // Strategy: override Ju by finding it via the function that generates QR print
+    // Actually Ju is not a global — it's inside the module scope.
+    // Alternative: intercept window.open and patch the document.write call.
+
+    // Better approach: intercept the invoice data stored in localStorage.
+    // When an invoice is saved, add zahlungsstelle from the tenant.
+    // The existing save code already does this, so SAVED invoices are correct.
+    // The bug is only in the LIVE PREVIEW and DIRECT PRINT (before saving).
+
+    // For direct print: intercept QR code generation or the print call
+    // Simplest: patch localStorage.getItem for pm_invoices to add zahlungsstelle to last invoice
+
+    // Actually, the best approach for PRINT:
+    // We can't easily intercept Ju. But we CAN fix it differently:
+    // After the print window opens, patch its DOM (same as we do for preview).
+    // The print window has "Zahlbar durch" text too.
+
+    // Intercept window.open to get a reference to the print window
+    var origOpen = window.open;
+    window.open = function () {
+      var win = origOpen.apply(window, arguments);
+      if (win) {
+        // Wait for the print content to load, then patch it
+        var checkCount = 0;
+        var checker = setInterval(function () {
+          checkCount++;
+          if (checkCount > 30) { clearInterval(checker); return; }
+          try {
+            var doc = win.document;
+            if (!doc || !doc.body) return;
+            var body = doc.body.innerHTML || '';
+            if (body.indexOf('Zahlbar durch') === -1 && body.indexOf('ZAHLBAR DURCH') === -1) return;
+
+            // Found print content — patch zahlbar durch
+            var tenant = getSelectedTenant();
+            if (!tenant) { clearInterval(checker); return; }
+
+            var zsName = tenant.zahlungsstelleName || '';
+            var zsAdresse = tenant.zahlungsstelleAdresse || '';
+            var zsPlz = tenant.zahlungsstellePlz || '';
+            var zsStadt = tenant.zahlungsstelleStadt || '';
+            if (!zsName.trim()) { clearInterval(checker); return; }
+
+            // Find all "Zahlbar durch" in the print document
+            var allDivs = doc.querySelectorAll('div');
+            for (var i = 0; i < allDivs.length; i++) {
+              var d = allDivs[i];
+              var txt = (d.textContent || '').trim();
+              if (txt === 'Zahlbar durch' || txt === 'ZAHLBAR DURCH') {
+                var dataDiv = d.nextElementSibling;
+                if (dataDiv && !dataDiv.getAttribute('data-zs-patched')) {
+                  var parts = [zsName, zsAdresse, (zsPlz + ' ' + zsStadt).trim()].filter(Boolean);
+                  dataDiv.innerHTML = parts.join('<br/>');
+                  dataDiv.setAttribute('data-zs-patched', '1');
+                }
+              }
+            }
+            clearInterval(checker);
+            LOG('patched print window zahlbar-durch for', zsName);
+          } catch (e) {
+            // Cross-origin or not ready yet
+          }
+        }, 200);
+      }
+      return win;
+    };
+    window.__zs_ju_patched = true;
+    LOG('print interceptor installed');
+  }
+
+  function init() {
+    startPatcher();
+    patchPrintFunction();
+    LOG('module ready');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(init, 500); });
+  } else {
+    setTimeout(init, 500);
   }
 })();
 
