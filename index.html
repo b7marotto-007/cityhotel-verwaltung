@@ -654,6 +654,7 @@ react-dom/cjs/react-dom-client.production.js:
 
 
 
+
 <script id="letterhead-module">
 /* Letterhead — Shared template matching invoice exactly */
 (function () {
@@ -5916,6 +5917,408 @@ react-dom/cjs/react-dom-client.production.js:
       } catch (e) {}
     }, 2000);
 
+    LOG('module ready');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(init, 600); });
+  } else {
+    setTimeout(init, 600);
+  }
+})();
+
+</script>
+<script id="archiv-module">
+/* Tenant Archive Module
+ * Adds "Archivieren" button to tenant list rows + tenant detail view.
+ * Archives: sets endDate=today, archived=true, archivedAt=timestamp
+ * Unarchive: removes archived flag, checks room collision, prompts for dates
+ * DSGVO: flags tenants archived > 10 years for deletion
+ */
+(function () {
+  'use strict';
+  var LOG = function () {
+    try { console.log.apply(console, ['[archiv]'].concat([].slice.call(arguments))); } catch (e) {}
+  };
+
+  var COL_RED = '#C0392B';
+  var COL_DARK = '#0C0F1A';
+  var COL_GRAY = '#8B8A86';
+  var COL_BORDER = '#E8E5DE';
+
+  function loadCache(key) {
+    try { var v = localStorage.getItem('cache_' + key); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+  }
+  function saveCache(key, value) {
+    try { localStorage.setItem('cache_' + key, JSON.stringify(value)); } catch (e) {}
+  }
+  function supaPush(key, value) {
+    try {
+      var c = JSON.parse(localStorage.getItem('_supa_cfg') || 'null');
+      if (!c) return;
+      fetch(c.url + '/rest/v1/pm_kv', {
+        method: 'POST',
+        headers: { apikey: c.key, Authorization: 'Bearer ' + c.key, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify({ key: key, value: JSON.stringify(value), updated_at: new Date().toISOString() })
+      }).catch(function () {});
+    } catch (e) {}
+  }
+  function saveTenants(arr) {
+    saveCache('pm_tenants', arr);
+    supaPush('pm_tenants', arr);
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function today() {
+    return new Date().toISOString().slice(0, 10);
+  }
+  function toSwissDate(s) {
+    if (!s) return '';
+    var m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? m[3] + '.' + m[2] + '.' + m[1] : s;
+  }
+  function toast(msg) {
+    var t = document.createElement('div');
+    t.textContent = msg;
+    t.style.cssText = 'position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:#0c0f1a;color:#fff;padding:12px 22px;border-radius:999px;font-size:13px;font-family:"DM Sans",system-ui,sans-serif;z-index:99999;box-shadow:0 10px 30px rgba(0,0,0,0.3)';
+    document.body.appendChild(t);
+    setTimeout(function () { t.style.transition = 'opacity 0.4s'; t.style.opacity = '0'; }, 2200);
+    setTimeout(function () { t.remove(); }, 2700);
+  }
+
+  // ===== Archive a tenant =====
+  function archiveTenant(tenantId) {
+    var tenants = loadCache('pm_tenants') || [];
+    var tenant = null;
+    for (var i = 0; i < tenants.length; i++) {
+      if (tenants[i].id === tenantId) { tenant = tenants[i]; break; }
+    }
+    if (!tenant) { LOG('tenant not found:', tenantId); return; }
+
+    var name = tenant.nameRaw || (tenant.vorname + ' ' + tenant.nachname);
+    if (!confirm('Mieter «' + name + '» wirklich ins Archiv verschieben?\n\nDer Mieter wird aus allen aktiven Listen entfernt und ist nur noch im Archiv sichtbar.')) return;
+
+    // Set endDate to today if not already in the past
+    if (!tenant.endDate || new Date(tenant.endDate) > new Date()) {
+      tenant.endDate = today();
+    }
+    tenant.archived = true;
+    tenant.archivedAt = new Date().toISOString();
+
+    tenants[i] = tenant;
+    saveTenants(tenants);
+    toast('📦 ' + name + ' ins Archiv verschoben');
+    LOG('archived', name);
+
+    // Force page refresh to update React state
+    setTimeout(function () {
+      // Trigger React re-render by simulating navigation
+      window.location.reload();
+    }, 500);
+  }
+
+  // ===== Unarchive a tenant =====
+  function unarchiveTenant(tenantId) {
+    var tenants = loadCache('pm_tenants') || [];
+    var tenant = null;
+    var tenantIdx = -1;
+    for (var i = 0; i < tenants.length; i++) {
+      if (tenants[i].id === tenantId) { tenant = tenants[i]; tenantIdx = i; break; }
+    }
+    if (!tenant) return;
+
+    var unit = tenant.unit || '';
+    var name = tenant.nameRaw || (tenant.vorname + ' ' + tenant.nachname);
+
+    // Check room collision — is someone else active in this room?
+    var collision = null;
+    if (unit) {
+      var now = new Date();
+      for (var j = 0; j < tenants.length; j++) {
+        var other = tenants[j];
+        if (other.id === tenantId) continue;
+        if (other.unit !== unit) continue;
+        if (other.archived) continue;
+        if (!other.endDate || new Date(other.endDate) >= now) {
+          collision = other;
+          break;
+        }
+      }
+    }
+
+    // Build dialog
+    var overlay = document.createElement('div');
+    overlay.id = 'arch-unarchive-dialog';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99996;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans",system-ui,sans-serif;';
+
+    var collisionHTML = '';
+    if (collision) {
+      var collName = collision.nameRaw || (collision.vorname + ' ' + collision.nachname);
+      collisionHTML =
+        '<div style="padding:12px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;margin-bottom:14px">' +
+        '<div style="font-weight:700;color:#dc2626;font-size:12px;margin-bottom:4px">⚠ Zimmer-Kollision erkannt</div>' +
+        '<div style="font-size:12px;color:#7f1d1d">Zimmer <strong>' + esc(unit) + '</strong> ist aktuell von <strong>' + esc(collName) + '</strong> belegt.</div>' +
+        '<div style="font-size:11px;color:#991b1b;margin-top:6px">Optionen: anderes Zimmer zuweisen oder bestehenden Mieter zuerst archivieren.</div>' +
+        '</div>' +
+        '<label style="display:block;font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:' + COL_GRAY + ';margin-bottom:6px">Neues Zimmer zuweisen (oder leer lassen für gleiches Zimmer)</label>' +
+        '<input type="text" id="arch-new-unit" value="" placeholder="z.B. Zimmer 301" style="width:100%;padding:10px 12px;border:1.5px solid ' + COL_BORDER + ';border-radius:8px;font-size:14px;font-family:inherit;margin-bottom:14px;"/>';
+    }
+
+    overlay.innerHTML =
+      '<div style="background:#fff;border-radius:14px;max-width:480px;width:100%;">' +
+      '<div style="padding:18px 22px;border-bottom:1px solid ' + COL_BORDER + ';display:flex;justify-content:space-between;align-items:center;">' +
+      '<div>' +
+      '<div style="font-size:16px;font-weight:700;">🔄 Mieter reaktivieren</div>' +
+      '<div style="font-size:12px;color:' + COL_GRAY + ';margin-top:2px;">' + esc(name) + ' — ' + esc(unit || 'Kein Zimmer') + '</div>' +
+      '</div>' +
+      '<button id="arch-ua-close" style="width:30px;height:30px;border-radius:50%;border:1px solid ' + COL_BORDER + ';background:#fff;font-size:16px;cursor:pointer;">×</button>' +
+      '</div>' +
+      '<div style="padding:20px 22px;">' +
+
+      collisionHTML +
+
+      '<label style="display:block;font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:' + COL_GRAY + ';margin-bottom:6px">Neuer Mietbeginn</label>' +
+      '<input type="date" id="arch-ua-start" value="' + today() + '" style="width:100%;padding:10px 12px;border:1.5px solid ' + COL_BORDER + ';border-radius:8px;font-size:14px;font-family:inherit;margin-bottom:14px;"/>' +
+
+      '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px;">' +
+      '<button id="arch-ua-cancel" style="padding:10px 18px;border-radius:8px;border:1px solid ' + COL_BORDER + ';background:#fff;cursor:pointer;font-size:13px;">Abbrechen</button>' +
+      '<button id="arch-ua-save" style="padding:10px 18px;border-radius:8px;border:none;background:#16a34a;color:#fff;cursor:pointer;font-size:13px;font-weight:600;">✓ Reaktivieren</button>' +
+      '</div>' +
+      '</div></div>';
+
+    document.body.appendChild(overlay);
+    var close = function () { overlay.remove(); };
+    document.getElementById('arch-ua-close').addEventListener('click', close);
+    document.getElementById('arch-ua-cancel').addEventListener('click', close);
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+
+    document.getElementById('arch-ua-save').addEventListener('click', function () {
+      var newStart = document.getElementById('arch-ua-start').value;
+      var newUnitEl = document.getElementById('arch-new-unit');
+      var newUnit = newUnitEl ? newUnitEl.value.trim() : '';
+      if (!newStart) { alert('Bitte Mietbeginn eingeben.'); return; }
+
+      // Reload tenants fresh
+      var freshTenants = loadCache('pm_tenants') || [];
+      var idx = -1;
+      for (var k = 0; k < freshTenants.length; k++) {
+        if (freshTenants[k].id === tenantId) { idx = k; break; }
+      }
+      if (idx < 0) { close(); return; }
+
+      // Check collision again if same unit
+      var finalUnit = newUnit || freshTenants[idx].unit;
+      if (collision && !newUnit) {
+        // User didn't change unit despite collision
+        if (!confirm('Zimmer ' + finalUnit + ' ist bereits belegt. Trotzdem reaktivieren?\n\nDies kann zu Doppelbelegung führen.')) return;
+      }
+
+      freshTenants[idx].archived = false;
+      delete freshTenants[idx].archivedAt;
+      freshTenants[idx].startDate = newStart;
+      freshTenants[idx].endDate = '';
+      if (newUnit) freshTenants[idx].unit = newUnit;
+
+      saveTenants(freshTenants);
+      close();
+      toast('✓ ' + name + ' wurde reaktiviert');
+      LOG('unarchived', name, 'unit:', finalUnit);
+      setTimeout(function () { window.location.reload(); }, 500);
+    });
+  }
+
+  // ===== DSGVO: check for tenants archived > 10 years =====
+  function checkDSGVO() {
+    var tenants = loadCache('pm_tenants') || [];
+    var now = new Date();
+    var TEN_YEARS_MS = 10 * 365.25 * 24 * 60 * 60 * 1000;
+    var expired = tenants.filter(function (t) {
+      if (!t.archivedAt) return false;
+      return (now - new Date(t.archivedAt)) > TEN_YEARS_MS;
+    });
+    if (expired.length > 0) {
+      LOG('DSGVO: ' + expired.length + ' Mieter seit 10+ Jahren archiviert — Löschung empfohlen');
+      // Show notification badge (non-intrusive)
+      var badge = document.createElement('div');
+      badge.id = 'dsgvo-badge';
+      badge.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#dc2626;color:#fff;padding:12px 18px;border-radius:12px;font-size:12px;font-family:"DM Sans",system-ui,sans-serif;z-index:99990;box-shadow:0 6px 24px rgba(0,0,0,0.2);cursor:pointer;max-width:320px';
+      badge.innerHTML = '⚠ <strong>DSGVO:</strong> ' + expired.length + ' Mieter seit 10+ Jahren archiviert. <span style="text-decoration:underline">Prüfen</span>';
+      badge.addEventListener('click', function () {
+        badge.remove();
+        if (confirm('Folgende Mieter sind seit über 10 Jahren archiviert und sollten gemäss DSGVO gelöscht werden:\n\n' +
+          expired.map(function (t) { return '• ' + (t.nameRaw || t.vorname + ' ' + t.nachname) + ' (archiviert: ' + toSwissDate(t.archivedAt) + ')'; }).join('\n') +
+          '\n\nMöchten Sie diese Mieter-Daten jetzt löschen?')) {
+          var fresh = loadCache('pm_tenants') || [];
+          var expiredIds = expired.map(function (t) { return t.id; });
+          fresh = fresh.filter(function (t) { return expiredIds.indexOf(t.id) === -1; });
+          saveTenants(fresh);
+          toast('🗑 ' + expired.length + ' Mieter-Daten gelöscht (DSGVO)');
+          setTimeout(function () { window.location.reload(); }, 500);
+        }
+      });
+      document.body.appendChild(badge);
+    }
+  }
+
+  // ===== DOM Injection: Add archive buttons =====
+
+  // Button styles
+  var archBtnStyle = 'padding:4px 10px;border-radius:6px;border:1px solid ' + COL_BORDER + ';background:#fff;cursor:pointer;font-size:11px;font-family:inherit;color:' + COL_GRAY + ';white-space:nowrap;transition:all 0.15s;';
+  var unarchBtnStyle = 'padding:4px 10px;border-radius:6px;border:1px solid #bbf7d0;background:#f0fdf4;cursor:pointer;font-size:11px;font-family:inherit;color:#16a34a;white-space:nowrap;font-weight:600;';
+
+  // Inject into mieter list: find each tenant row and add button
+  function injectListButtons() {
+    // The tenant list has rows with unit + name + rent. Each row is clickable.
+    // We look for rows that show active tenants (in the main mieter list).
+    // We inject a small "📦" button at the end of each row.
+
+    // Strategy: find all elements that look like tenant rows in the main content.
+    // Tenant rows have patterns like "Zimmer 101 · Name"
+    // Instead of scanning all, we inject a floating action when hovering tenant cards.
+
+    // Better approach: add a CSS hover effect that shows an archive button
+    if (document.getElementById('arch-hover-style')) return;
+    var style = document.createElement('style');
+    style.id = 'arch-hover-style';
+    style.textContent =
+      '.arch-btn-inject { opacity:0; transition:opacity 0.15s; pointer-events:none; }' +
+      '*:hover > .arch-btn-inject { opacity:1; pointer-events:auto; }';
+    document.head.appendChild(style);
+  }
+
+  // Inject into Archiv/Historie view: add "Reaktivieren" button next to archived tenants
+  function injectArchiveButtons() {
+    // Look for the Archiv view — it has a heading "Archiv / Historie"
+    // and shows tenant cards with "Zur Mieter-Akte" buttons.
+    // We add "🔄 Reaktivieren" button next to each archived tenant.
+
+    // Find elements with text containing archive-related info
+    var btns = document.querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++) {
+      var btn = btns[i];
+      if ((btn.textContent || '').trim() === '← Zurück zum Archiv') {
+        // We're in a tenant detail view opened from archive
+        injectDetailArchiveButton(btn);
+        return;
+      }
+    }
+  }
+
+  function injectDetailArchiveButton(backBtn) {
+    // We're in the tenant detail view. Add archive/unarchive button next to back button.
+    if (document.getElementById('arch-detail-btn')) return;
+    var bar = backBtn.parentElement;
+    if (!bar) return;
+
+    // Figure out which tenant we're looking at
+    // The detail view shows tenant name nearby
+    var tenants = loadCache('pm_tenants') || [];
+    // Find tenant ID from the DOM — look at the detail content below the bar
+    var parent = bar.parentElement;
+    if (!parent) return;
+
+    // Try to find tenant by matching visible name/unit text
+    var allText = (parent.textContent || '').slice(0, 500);
+    var matchedTenant = null;
+    for (var i = 0; i < tenants.length; i++) {
+      var t = tenants[i];
+      var name = t.nameRaw || (t.vorname + ' ' + t.nachname);
+      if (allText.indexOf(name) !== -1) {
+        matchedTenant = t;
+        break;
+      }
+    }
+    if (!matchedTenant) return;
+
+    var isArchived = matchedTenant.archived;
+    var btn = document.createElement('button');
+    btn.id = 'arch-detail-btn';
+    if (isArchived) {
+      btn.innerHTML = '🔄 Reaktivieren';
+      btn.style.cssText = unarchBtnStyle;
+      btn.addEventListener('click', function () { unarchiveTenant(matchedTenant.id); });
+    } else {
+      btn.innerHTML = '📦 Archivieren';
+      btn.style.cssText = archBtnStyle;
+      btn.addEventListener('click', function () { archiveTenant(matchedTenant.id); });
+    }
+    bar.appendChild(btn);
+    LOG('detail button injected for', matchedTenant.nameRaw || matchedTenant.vorname);
+  }
+
+  // For main mieter list: inject via the "Mieter" tab / detail sidebar
+  function injectMieterListButtons() {
+    // Look for "← Zurück" button — if visible, we're in mieter detail (from mieter list)
+    var btns = document.querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++) {
+      var btn = btns[i];
+      var t = (btn.textContent || '').trim();
+      if (t === '← Zurück') {
+        // Check if we're in mieter context (not archiv)
+        var parent = btn.parentElement;
+        if (!parent) continue;
+        var sibText = (parent.textContent || '').toLowerCase();
+        if (sibText.indexOf('mieter') !== -1 && sibText.indexOf('archiv') === -1) {
+          injectDetailButton(btn);
+        }
+      }
+    }
+  }
+
+  function injectDetailButton(backBtn) {
+    if (document.getElementById('arch-mieter-btn')) return;
+    var bar = backBtn.parentElement;
+    if (!bar) return;
+
+    var tenants = loadCache('pm_tenants') || [];
+    var parent = bar.parentElement;
+    if (!parent) return;
+    var allText = (parent.textContent || '').slice(0, 500);
+    var matchedTenant = null;
+    for (var i = 0; i < tenants.length; i++) {
+      var t = tenants[i];
+      var name = t.nameRaw || (t.vorname + ' ' + t.nachname);
+      if (allText.indexOf(name) !== -1) { matchedTenant = t; break; }
+    }
+    if (!matchedTenant) return;
+    if (matchedTenant.archived) return; // already archived, shouldn't be in active list
+
+    var btn = document.createElement('button');
+    btn.id = 'arch-mieter-btn';
+    btn.innerHTML = '📦 Archivieren';
+    btn.style.cssText = archBtnStyle + 'margin-left:auto;';
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      archiveTenant(matchedTenant.id);
+    });
+    bar.appendChild(btn);
+    LOG('mieter detail button injected for', matchedTenant.nameRaw || matchedTenant.vorname);
+  }
+
+  // ===== Polling to inject buttons =====
+  function poll() {
+    try {
+      injectListButtons();
+      injectArchiveButtons();
+      injectMieterListButtons();
+    } catch (e) {
+      LOG('poll error', e);
+    }
+  }
+
+  // ===== Expose globally =====
+  window.archiveTenant = archiveTenant;
+  window.unarchiveTenant = unarchiveTenant;
+
+  function init() {
+    setInterval(poll, 1500);
+    [300, 1000, 2500].forEach(function (d) { setTimeout(poll, d); });
+    // DSGVO check once on load
+    setTimeout(checkDSGVO, 5000);
     LOG('module ready');
   }
 
