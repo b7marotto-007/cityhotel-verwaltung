@@ -662,6 +662,7 @@ react-dom/cjs/react-dom-client.production.js:
 
 
 
+
 <script id="letterhead-module">
 /* Letterhead — Shared template matching invoice exactly */
 (function () {
@@ -7663,6 +7664,224 @@ react-dom/cjs/react-dom-client.production.js:
     document.addEventListener('DOMContentLoaded', function () { setTimeout(init, 500); });
   } else {
     setTimeout(init, 500);
+  }
+})();
+
+</script>
+<script id="unit-sync-module">
+/* Unit Auto-Sync Module
+ * Fixes mismatch between tenant.unit (text) and tenant.einheitId (reference).
+ * Runs on every page load: if a tenant has unit="Zimmer 506" but einheitId
+ * doesn't match, it corrects einheitId automatically.
+ * Also sets einheitName to match.
+ * Logs all corrections to console.
+ */
+(function () {
+  'use strict';
+  var LOG = function () {
+    try { console.log.apply(console, ['[unit-sync]'].concat([].slice.call(arguments))); } catch (e) {}
+  };
+
+  // Complete mapping: unit name → einheitId
+  var UNIT_MAP = {
+    "Reception EG": "hotel_101",
+    "Zimmer 101": "hotel_103",
+    "Zimmer 103": "hotel_105",
+    "Zimmer 102": "hotel_107",
+    "Zimmer 104": "hotel_109",
+    "Zimmer 105": "hotel_111",
+    "Zimmer 106": "hotel_113",
+    "Zimmer 201": "hotel_115",
+    "Zimmer 202": "hotel_117",
+    "Zimmer 203": "hotel_119",
+    "Zimmer 204": "hotel_121",
+    "Zimmer 205": "hotel_123",
+    "Zimmer 206": "hotel_125",
+    "Zimmer 207": "hotel_127",
+    "Zimmer 208": "hotel_129",
+    "Zimmer 209": "hotel_131",
+    "Zimmer 210": "hotel_133",
+    "Zimmer 211": "hotel_135",
+    "Zimmer 301": "hotel_137",
+    "Zimmer 302": "hotel_139",
+    "Zimmer 401": "hotel_141",
+    "Zimmer 402": "hotel_143",
+    "Zimmer 403": "hotel_145",
+    "Zimmer 408": "hotel_147",
+    "Zimmer 501": "hotel_149",
+    "Zimmer 502": "hotel_151",
+    "Zimmer 503": "hotel_153",
+    "Zimmer 504": "hotel_155",
+    "Zimmer 505": "hotel_157",
+    "Zimmer 506": "hotel_159",
+    "Parkplatz 1": "hotel_160",
+    "Parkplatz 2": "hotel_161",
+    "Parkplatz 3": "hotel_162",
+    "Parkplatz 4": "hotel_163",
+    "Parkplatz 5": "hotel_164",
+    "Parkplatz 6": "hotel_165",
+    "Parkplatz 7": "hotel_166",
+    "Parkplatz 8": "hotel_167",
+    "Parkplatz 9": "hotel_168",
+    "Parkplatz 10": "hotel_169",
+    "Parkplatz 11": "hotel_170",
+    "Parkplatz 12": "hotel_171"
+  };
+
+  // Reverse map: einheitId → name
+  var ID_TO_NAME = {};
+  for (var k in UNIT_MAP) {
+    if (UNIT_MAP.hasOwnProperty(k)) ID_TO_NAME[UNIT_MAP[k]] = k;
+  }
+
+  function loadCache(key) {
+    try { var v = localStorage.getItem('cache_' + key); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+  }
+  function saveCache(key, value) {
+    try { localStorage.setItem('cache_' + key, JSON.stringify(value)); } catch (e) {}
+  }
+  function supaPush(key, value) {
+    try {
+      var c = JSON.parse(localStorage.getItem('_supa_cfg') || 'null');
+      if (!c) return;
+      fetch(c.url + '/rest/v1/pm_kv', {
+        method: 'POST',
+        headers: { apikey: c.key, Authorization: 'Bearer ' + c.key, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify({ key: key, value: JSON.stringify(value), updated_at: new Date().toISOString() })
+      }).catch(function () {});
+    } catch (e) {}
+  }
+
+  function runSync() {
+    var tenants = loadCache('pm_tenants');
+    if (!tenants || !tenants.length) return;
+
+    var fixed = 0;
+    var issues = [];
+
+    for (var i = 0; i < tenants.length; i++) {
+      var t = tenants[i];
+      var unit = (t.unit || '').trim();
+      if (!unit) continue;
+
+      var name = t.nameRaw || (t.vorname + ' ' + t.nachname);
+      var expectedId = UNIT_MAP[unit];
+
+      if (!expectedId) {
+        // Try fuzzy match: "Zimmer 506" vs "zimmer 506", or " Zimmer 506 "
+        var unitClean = unit.replace(/\s+/g, ' ').trim();
+        expectedId = UNIT_MAP[unitClean];
+        if (!expectedId) {
+          // Try without "Zimmer " prefix — maybe they typed just "506"
+          var asZimmer = 'Zimmer ' + unitClean;
+          expectedId = UNIT_MAP[asZimmer];
+        }
+      }
+
+      if (!expectedId) {
+        // Unknown unit text — can't auto-fix
+        if (unit && !t.einheitId) {
+          issues.push('  ⚠ ' + name + ' hat unit="' + unit + '" — kein bekanntes Zimmer gefunden');
+        }
+        continue;
+      }
+
+      // Check einheitId
+      var needsFix = false;
+      var changes = [];
+
+      if (t.einheitId !== expectedId) {
+        changes.push('einheitId: ' + (t.einheitId || '(leer)') + ' → ' + expectedId);
+        t.einheitId = expectedId;
+        needsFix = true;
+      }
+
+      // Also fix einheitName if missing or wrong
+      var expectedName = ID_TO_NAME[expectedId] || unit;
+      if (t.einheitName !== expectedName) {
+        changes.push('einheitName: ' + (t.einheitName || '(leer)') + ' → ' + expectedName);
+        t.einheitName = expectedName;
+        needsFix = true;
+      }
+
+      if (needsFix) {
+        fixed++;
+        LOG('FIX: ' + name + ' [' + unit + '] — ' + changes.join(', '));
+      }
+    }
+
+    if (fixed > 0) {
+      saveCache('pm_tenants', tenants);
+      supaPush('pm_tenants', tenants);
+      LOG('Auto-Sync fertig: ' + fixed + ' Mieter korrigiert');
+    } else {
+      LOG('Auto-Sync: alle Mieter korrekt zugeordnet');
+    }
+
+    if (issues.length > 0) {
+      LOG('Offene Probleme:\n' + issues.join('\n'));
+    }
+  }
+
+  // Also intercept localStorage saves of pm_tenants to fix on every update
+  function installSaveInterceptor() {
+    var origSetItem = localStorage.setItem.bind(localStorage);
+    localStorage.setItem = function (key, value) {
+      origSetItem(key, value);
+      // After tenant data is saved, run sync
+      if (key === 'cache_pm_tenants') {
+        setTimeout(function () {
+          try { runSyncSilent(); } catch (e) {}
+        }, 500);
+      }
+    };
+    LOG('save interceptor installed');
+  }
+
+  // Silent sync — doesn't push to Supabase (avoids loop since save triggers interceptor)
+  function runSyncSilent() {
+    var tenants;
+    try { tenants = JSON.parse(localStorage.getItem('cache_pm_tenants') || '[]'); } catch (e) { return; }
+    if (!tenants.length) return;
+
+    var fixed = 0;
+    for (var i = 0; i < tenants.length; i++) {
+      var t = tenants[i];
+      var unit = (t.unit || '').trim();
+      if (!unit) continue;
+      var expectedId = UNIT_MAP[unit] || UNIT_MAP['Zimmer ' + unit];
+      if (!expectedId) continue;
+      if (t.einheitId !== expectedId) {
+        t.einheitId = expectedId;
+        t.einheitName = ID_TO_NAME[expectedId] || unit;
+        fixed++;
+      }
+    }
+    if (fixed > 0) {
+      // Write directly without triggering interceptor
+      try {
+        var origSetItem = Storage.prototype.setItem;
+        origSetItem.call(localStorage, 'cache_pm_tenants', JSON.stringify(tenants));
+      } catch (e) {}
+      LOG('silent fix: ' + fixed + ' corrected');
+    }
+  }
+
+  function init() {
+    // Run sync immediately
+    runSync();
+    // Also run after React loads data from Supabase (delayed)
+    setTimeout(runSync, 3000);
+    setTimeout(runSync, 8000);
+    // Install interceptor for future saves
+    installSaveInterceptor();
+    LOG('module ready');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(init, 800); });
+  } else {
+    setTimeout(init, 800);
   }
 })();
 
