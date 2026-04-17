@@ -663,6 +663,9 @@ react-dom/cjs/react-dom-client.production.js:
 
 
 
+
+
+
 <script id="letterhead-module">
 /* Letterhead — Shared template matching invoice exactly */
 (function () {
@@ -7882,6 +7885,965 @@ react-dom/cjs/react-dom-client.production.js:
     document.addEventListener('DOMContentLoaded', function () { setTimeout(init, 800); });
   } else {
     setTimeout(init, 800);
+  }
+})();
+
+</script>
+<script id="anmeldung-module">
+/* An/Abmeldung Gemeinde-Formular Module
+ * Replaces CSV export with direct Gemeinde-Formular workflow.
+ * - Auto-generates "Ein- und Auszugsmeldungen" form for Einwohnerdienste Wettingen
+ * - Popup when new tenant created or tenant gets endDate
+ * - Email via mailto (later Resend)
+ * - Status tracking: offen → gesendet → erledigt
+ * - Persistent popup until "erledigt"
+ */
+(function () {
+  'use strict';
+  var LOG = function () {
+    try { console.log.apply(console, ['[anmeldung]'].concat([].slice.call(arguments))); } catch (e) {}
+  };
+
+  var COL_RED = '#C0392B';
+  var COL_DARK = '#0C0F1A';
+  var COL_GRAY = '#8B8A86';
+  var COL_BORDER = '#E8E5DE';
+  var COL_BG = '#F6F5F1';
+  var GEMEINDE_EMAIL = 'einwohnerdienste@wettingen.ch';
+
+  // Storage
+  function loadCache(key) {
+    try { var v = localStorage.getItem('cache_' + key); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+  }
+  function saveCache(key, value) {
+    try { localStorage.setItem('cache_' + key, JSON.stringify(value)); } catch (e) {}
+  }
+  function supaPush(key, value) {
+    try {
+      var c = JSON.parse(localStorage.getItem('_supa_cfg') || 'null');
+      if (!c) return;
+      fetch(c.url + '/rest/v1/pm_kv', {
+        method: 'POST',
+        headers: { apikey: c.key, Authorization: 'Bearer ' + c.key, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify({ key: key, value: JSON.stringify(value), updated_at: new Date().toISOString() })
+      }).catch(function () {});
+    } catch (e) {}
+  }
+  function loadMeldungen() { return loadCache('pm_anmeldungen') || []; }
+  function saveMeldungen(arr) { saveCache('pm_anmeldungen', arr); supaPush('pm_anmeldungen', arr); }
+  function loadTenants() { return loadCache('pm_tenants') || []; }
+  function loadFirma() {
+    var keys = ['cache_pm_firma', 'pm_firma_v2', 'pm_firma'];
+    for (var i = 0; i < keys.length; i++) {
+      try { var s = localStorage.getItem(keys[i]); if (s) { var o = JSON.parse(s); if (o && o.firmaName) return o; } } catch (e) {}
+    }
+    return { firmaName: 'City Apartments GmbH', firmaAdresse: 'Alberich Zwyssigstrasse 81', firmaPlz: '5430', firmaStadt: 'Wettingen', firmaPhone: '+41 79 555 95 15', firmaMail: 'info@cityapartments.ch' };
+  }
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function genId() { return 'am_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
+  function today() { return new Date().toISOString().slice(0, 10); }
+  function toSwiss(s) { if (!s) return ''; var m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? m[3] + '.' + m[2] + '.' + m[1] : s; }
+  function toast(msg) {
+    var t = document.createElement('div');
+    t.textContent = msg;
+    t.style.cssText = 'position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:#0c0f1a;color:#fff;padding:12px 22px;border-radius:999px;font-size:13px;font-family:"DM Sans",system-ui,sans-serif;z-index:99999;box-shadow:0 10px 30px rgba(0,0,0,0.3)';
+    document.body.appendChild(t);
+    setTimeout(function () { t.style.transition = 'opacity 0.4s'; t.style.opacity = '0'; }, 2200);
+    setTimeout(function () { t.remove(); }, 2700);
+  }
+
+  // Stockwerk aus Zimmernummer berechnen
+  function stockwerkFromUnit(unit) {
+    if (!unit) return '';
+    var m = unit.match(/(\d)\d{2}/);
+    if (m) return m[1] + '. Stock, Zimmer Nr. ' + unit.match(/\d+/)[0];
+    if (/reception|eg/i.test(unit)) return 'EG, Reception';
+    return unit;
+  }
+
+  // ===== Formular Dialog =====
+  function openFormDialog(opts) {
+    if (document.getElementById('am-form-dialog')) return;
+    opts = opts || {};
+    var tenants = loadTenants();
+    var firma = loadFirma();
+    var now = new Date();
+    var activeTenants = tenants.filter(function (t) { return !t.endDate || new Date(t.endDate) >= now; });
+    var allTenants = tenants;
+
+    // Prefill
+    var prefillTenant = opts.tenantId ? tenants.find(function (t) { return t.id === opts.tenantId; }) : null;
+    var meldungType = opts.type || 'einzug'; // einzug | auszug | beide
+    var existing = opts.meldung || null;
+
+    var overlay = document.createElement('div');
+    overlay.id = 'am-form-dialog';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:99996;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto;font-family:"DM Sans",system-ui,sans-serif;';
+
+    var tenantOpts = '<option value="">— Mieter wählen —</option>' +
+      allTenants.map(function (t) {
+        var name = t.nameRaw || (t.vorname + ' ' + t.nachname);
+        var sel = prefillTenant && t.id === prefillTenant.id ? ' selected' : '';
+        return '<option value="' + esc(t.id) + '"' + sel + '>' + esc((t.unit || '—') + ' — ' + name) + '</option>';
+      }).join('');
+
+    var typeOpts =
+      '<option value="einzug"' + (meldungType === 'einzug' ? ' selected' : '') + '>Einzug (Anmeldung)</option>' +
+      '<option value="auszug"' + (meldungType === 'auszug' ? ' selected' : '') + '>Auszug (Abmeldung)</option>' +
+      '<option value="beide"' + (meldungType === 'beide' ? ' selected' : '') + '>Ein- und Auszug (Mieterwechsel)</option>';
+
+    overlay.innerHTML =
+      '<div style="background:#fff;border-radius:16px;max-width:640px;width:100%;box-shadow:0 24px 80px rgba(0,0,0,0.3)">' +
+
+      // Header
+      '<div style="padding:22px 26px;border-bottom:1px solid ' + COL_BORDER + ';display:flex;justify-content:space-between;align-items:center">' +
+      '<div>' +
+      '<div style="font-size:18px;font-weight:700">🏛 Ein-/Auszugsmeldung Gemeinde</div>' +
+      '<div style="font-size:12px;color:' + COL_GRAY + ';margin-top:2px">Einwohnerdienste, 5430 Wettingen</div>' +
+      '</div>' +
+      '<button id="am-fd-close" style="width:32px;height:32px;border-radius:50%;border:1px solid ' + COL_BORDER + ';background:#fff;font-size:18px;cursor:pointer">×</button>' +
+      '</div>' +
+
+      '<div style="padding:22px 26px;max-height:75vh;overflow-y:auto">' +
+
+      // Section 1: Vermieter (read-only)
+      '<div style="margin-bottom:18px;padding:14px;background:' + COL_BG + ';border-radius:10px;border:1px solid ' + COL_BORDER + '">' +
+      '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:' + COL_GRAY + ';margin-bottom:8px">1. Liegenschaftsverwaltung / Vermieter</div>' +
+      '<div style="font-size:12px;line-height:1.8;color:' + COL_DARK + '">' +
+      '<div>' + esc(firma.firmaName) + '</div>' +
+      '<div>' + esc(firma.firmaAdresse) + ', ' + esc(firma.firmaPlz) + ' ' + esc(firma.firmaStadt) + '</div>' +
+      '<div>Kontakt: ' + esc(firma.firmaPhone) + ' · ' + esc(firma.firmaMail) + '</div>' +
+      '</div></div>' +
+
+      // Type selector
+      fld('Art der Meldung', '<select id="am-fd-type" style="' + iS + '">' + typeOpts + '</select>') +
+
+      // Section: Mieter selection
+      fld('Mieter', '<select id="am-fd-tenant" style="' + iS + '">' + tenantOpts + '</select>') +
+
+      // Section 2: Liegenschaft (auto-filled)
+      '<div id="am-fd-liegenschaft" style="margin-bottom:14px;padding:14px;background:' + COL_BG + ';border-radius:10px;border:1px solid ' + COL_BORDER + '">' +
+      '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:' + COL_GRAY + ';margin-bottom:8px">2. Liegenschaft / Wohnung</div>' +
+      '<div style="font-size:12px;color:' + COL_DARK + '">' +
+      '<div>Alberich Zwyssigstrasse 81, 5430 Wettingen</div>' +
+      '<div id="am-fd-stockwerk" style="margin-top:4px;font-weight:600">Stockwerk: —</div>' +
+      '</div>' +
+      '</div>' +
+
+      // Mitbewohnende
+      fld('Mitbewohnende (optional)', '<input type="text" id="am-fd-mitbewohner" value="' + esc((existing && existing.mitbewohner) || '') + '" placeholder="z.B. Elena Nicoleta Mihaila" style="' + iS + '"/>') +
+
+      // Section 3: Ausziehende Person
+      '<div id="am-fd-auszug-section">' +
+      '<div style="font-size:13px;font-weight:700;color:' + COL_RED + ';margin:16px 0 10px;padding-bottom:6px;border-bottom:1px solid ' + COL_BORDER + '">3. Ausziehende Person</div>' +
+      '<div style="display:flex;gap:12px">' +
+      fld('Name', '<input type="text" id="am-fd-aus-name" value="" style="' + iS + '"/>', '1') +
+      fld('Vorname', '<input type="text" id="am-fd-aus-vorname" value="" style="' + iS + '"/>', '1') +
+      '</div>' +
+      '<div style="display:flex;gap:12px">' +
+      fld('Geburtsdatum', '<input type="date" id="am-fd-aus-geb" value="" style="' + iS + '"/>', '1') +
+      fld('Nationalität', '<input type="text" id="am-fd-aus-nat" value="" placeholder="z.B. CH, DE, RO" style="' + iS + '"/>', '1') +
+      '</div>' +
+      fld('Auszugsdatum', '<input type="date" id="am-fd-aus-datum" value="" style="' + iS + '"/>') +
+      fld('Wegzug nach (optional)', '<input type="text" id="am-fd-aus-wegzug" value="" placeholder="Neue Adresse, PLZ Ort — oder leer lassen" style="' + iS + '"/>') +
+      '</div>' +
+
+      // Section 4: Einziehende Person
+      '<div id="am-fd-einzug-section">' +
+      '<div style="font-size:13px;font-weight:700;color:#16a34a;margin:16px 0 10px;padding-bottom:6px;border-bottom:1px solid ' + COL_BORDER + '">4. Einziehende Person</div>' +
+      '<div style="display:flex;gap:12px">' +
+      fld('Name', '<input type="text" id="am-fd-ein-name" value="" style="' + iS + '"/>', '1') +
+      fld('Vorname', '<input type="text" id="am-fd-ein-vorname" value="" style="' + iS + '"/>', '1') +
+      '</div>' +
+      '<div style="display:flex;gap:12px">' +
+      fld('Geburtsdatum', '<input type="date" id="am-fd-ein-geb" value="" style="' + iS + '"/>', '1') +
+      fld('Nationalität', '<input type="text" id="am-fd-ein-nat" value="" placeholder="z.B. CH, DE, RO" style="' + iS + '"/>', '1') +
+      '</div>' +
+      fld('Einzugsdatum', '<input type="date" id="am-fd-ein-datum" value="" style="' + iS + '"/>') +
+      fld('Zuzug von (optional)', '<input type="text" id="am-fd-ein-zuzug" value="" placeholder="Vorherige Adresse, PLZ Ort — oder leer lassen" style="' + iS + '"/>') +
+      '</div>' +
+
+      // Bemerkungen
+      fld('Bemerkungen (optional)', '<textarea id="am-fd-bemerkungen" rows="2" placeholder="Zusätzliche Infos..." style="' + iS + 'resize:vertical;min-height:40px">' + esc((existing && existing.bemerkungen) || '') + '</textarea>') +
+
+      // Actions
+      '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap">' +
+      (existing && existing.id ? '<button id="am-fd-delete" style="padding:10px 16px;border-radius:8px;border:1px solid #fecaca;background:#fef2f2;color:#dc2626;cursor:pointer;font-size:12px;margin-right:auto">🗑 Löschen</button>' : '') +
+      '<button id="am-fd-cancel" style="padding:10px 16px;border-radius:8px;border:1px solid ' + COL_BORDER + ';background:#fff;cursor:pointer;font-size:12px">Abbrechen</button>' +
+      '<button id="am-fd-print" style="padding:10px 16px;border-radius:8px;border:1px solid ' + COL_BORDER + ';background:#fff;cursor:pointer;font-size:12px">🖨 Drucken / PDF</button>' +
+      '<button id="am-fd-email" style="padding:10px 16px;border-radius:8px;border:none;background:' + COL_RED + ';color:#fff;cursor:pointer;font-size:12px;font-weight:600">📧 Per E-Mail senden</button>' +
+      '</div>' +
+
+      '</div></div>';
+
+    document.body.appendChild(overlay);
+    var close = function () { overlay.remove(); };
+    document.getElementById('am-fd-close').addEventListener('click', close);
+    document.getElementById('am-fd-cancel').addEventListener('click', close);
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+
+    // Delete
+    if (existing && existing.id) {
+      document.getElementById('am-fd-delete').addEventListener('click', function () {
+        if (confirm('Meldung löschen?')) {
+          var arr = loadMeldungen().filter(function (m) { return m.id !== existing.id; });
+          saveMeldungen(arr);
+          close();
+          refreshList();
+          toast('🗑 Meldung gelöscht');
+        }
+      });
+    }
+
+    // Toggle sections based on type
+    function updateSections() {
+      var type = document.getElementById('am-fd-type').value;
+      document.getElementById('am-fd-auszug-section').style.display = (type === 'einzug') ? 'none' : 'block';
+      document.getElementById('am-fd-einzug-section').style.display = (type === 'auszug') ? 'none' : 'block';
+    }
+    document.getElementById('am-fd-type').addEventListener('change', updateSections);
+    updateSections();
+
+    // Auto-fill when tenant changes
+    function fillFromTenant() {
+      var tid = document.getElementById('am-fd-tenant').value;
+      var t = allTenants.find(function (x) { return x.id === tid; });
+      if (!t) return;
+      var type = document.getElementById('am-fd-type').value;
+      var sw = stockwerkFromUnit(t.unit || '');
+      document.getElementById('am-fd-stockwerk').textContent = 'Stockwerk: ' + (sw || '—');
+
+      if (type === 'auszug' || type === 'beide') {
+        document.getElementById('am-fd-aus-name').value = t.nachname || '';
+        document.getElementById('am-fd-aus-vorname').value = t.vorname || '';
+        document.getElementById('am-fd-aus-geb').value = t.geburtsdatum || '';
+        document.getElementById('am-fd-aus-nat').value = t.nationalitaet || t.staatsangehörigkeit || 'CH';
+        document.getElementById('am-fd-aus-datum').value = t.endDate || '';
+      }
+      if (type === 'einzug' || type === 'beide') {
+        document.getElementById('am-fd-ein-name').value = t.nachname || '';
+        document.getElementById('am-fd-ein-vorname').value = t.vorname || '';
+        document.getElementById('am-fd-ein-geb').value = t.geburtsdatum || '';
+        document.getElementById('am-fd-ein-nat').value = t.nationalitaet || t.staatsangehörigkeit || 'CH';
+        document.getElementById('am-fd-ein-datum').value = t.startDate || '';
+      }
+    }
+    document.getElementById('am-fd-tenant').addEventListener('change', fillFromTenant);
+    document.getElementById('am-fd-type').addEventListener('change', fillFromTenant);
+    if (prefillTenant) fillFromTenant();
+
+    // Collect form data
+    function collectData() {
+      var tid = document.getElementById('am-fd-tenant').value;
+      var t = allTenants.find(function (x) { return x.id === tid; }) || {};
+      return {
+        id: (existing && existing.id) || genId(),
+        tenantId: tid,
+        tenantName: t.nameRaw || (t.vorname + ' ' + t.nachname) || '',
+        type: document.getElementById('am-fd-type').value,
+        unit: t.unit || '',
+        stockwerk: stockwerkFromUnit(t.unit || ''),
+        mitbewohner: document.getElementById('am-fd-mitbewohner').value.trim(),
+        auszug: {
+          name: document.getElementById('am-fd-aus-name').value.trim(),
+          vorname: document.getElementById('am-fd-aus-vorname').value.trim(),
+          geburtsdatum: document.getElementById('am-fd-aus-geb').value,
+          nationalitaet: document.getElementById('am-fd-aus-nat').value.trim(),
+          datum: document.getElementById('am-fd-aus-datum').value,
+          wegzug: document.getElementById('am-fd-aus-wegzug').value.trim()
+        },
+        einzug: {
+          name: document.getElementById('am-fd-ein-name').value.trim(),
+          vorname: document.getElementById('am-fd-ein-vorname').value.trim(),
+          geburtsdatum: document.getElementById('am-fd-ein-geb').value,
+          nationalitaet: document.getElementById('am-fd-ein-nat').value.trim(),
+          datum: document.getElementById('am-fd-ein-datum').value,
+          zuzug: document.getElementById('am-fd-ein-zuzug').value.trim()
+        },
+        bemerkungen: document.getElementById('am-fd-bemerkungen').value.trim(),
+        status: (existing && existing.status) || 'offen',
+        createdAt: (existing && existing.createdAt) || new Date().toISOString()
+      };
+    }
+
+    // Save
+    function saveMeldung(data, newStatus) {
+      data.status = newStatus || data.status;
+      data.updatedAt = new Date().toISOString();
+      var arr = loadMeldungen();
+      var idx = -1;
+      for (var i = 0; i < arr.length; i++) if (arr[i].id === data.id) { idx = i; break; }
+      if (idx >= 0) arr[idx] = data; else arr.push(data);
+      saveMeldungen(arr);
+      return data;
+    }
+
+    // Email — 2-step: open form for PDF save, then open mailto
+    document.getElementById('am-fd-email').addEventListener('click', function () {
+      var data = collectData();
+      if (!data.tenantId) { alert('Bitte Mieter wählen.'); return; }
+      var f = loadFirma();
+
+      // Step 1: Open form for PDF save
+      openFormForPdfSave(data);
+
+      // Step 2: Open mailto after short delay (so user sees the form first)
+      setTimeout(function () {
+        var subject = encodeURIComponent('Ein-/Auszugsmeldung — ' + data.tenantName + ' — Alberich Zwyssigstrasse 81');
+        var body = buildEmailBody(data, f);
+        body += '\n\n---\nFormular als PDF im Anhang.';
+        var mailto = 'mailto:' + GEMEINDE_EMAIL + '?subject=' + subject + '&body=' + encodeURIComponent(body);
+        window.open(mailto, '_self');
+      }, 800);
+
+      saveMeldung(data, 'gesendet');
+      close();
+      refreshList();
+      toast('📧 1) Formular als PDF speichern (Strg+P → Als PDF speichern)\n2) PDF an E-Mail anhängen');
+    });
+
+    // Print
+    document.getElementById('am-fd-print').addEventListener('click', function () {
+      var data = collectData();
+      if (!data.tenantId) { alert('Bitte Mieter wählen.'); return; }
+      printFormular(data);
+      saveMeldung(data, data.status === 'offen' ? 'offen' : data.status);
+      toast('🖨 Formular zum Drucken geöffnet');
+    });
+  }
+
+  var iS = 'width:100%;padding:10px 12px;border:1.5px solid ' + COL_BORDER + ';border-radius:8px;font-size:14px;font-family:inherit;margin-bottom:14px;';
+  function fld(label, html, flex) {
+    return '<div' + (flex ? ' style="flex:' + flex + '"' : '') + '>' +
+      '<label style="display:block;font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:' + COL_GRAY + ';margin-bottom:6px">' + label + '</label>' +
+      html + '</div>';
+  }
+
+  // ===== Email body =====
+  function buildEmailBody(data, f) {
+    var lines = [
+      'Sehr geehrte Damen und Herren,',
+      '',
+      'hiermit melden wir folgenden Mieterwechsel:',
+      '',
+      '--- 1. LIEGENSCHAFTSVERWALTUNG ---',
+      'Vermieter: ' + f.firmaName,
+      'Adresse: ' + f.firmaAdresse + ', ' + f.firmaPlz + ' ' + f.firmaStadt,
+      'Kontakt: ' + f.firmaPhone + ' / ' + f.firmaMail,
+      '',
+      '--- 2. LIEGENSCHAFT ---',
+      'Strasse: Alberich Zwyssigstrasse 81',
+      'PLZ, Ort: 5430 Wettingen',
+      'Stockwerk/Zimmer: ' + (data.stockwerk || data.unit || '—'),
+      data.mitbewohner ? 'Mitbewohnende: ' + data.mitbewohner : ''
+    ];
+
+    if (data.type === 'auszug' || data.type === 'beide') {
+      lines.push('');
+      lines.push('--- 3. AUSZIEHENDE PERSON ---');
+      lines.push('Name: ' + data.auszug.name);
+      lines.push('Vorname: ' + data.auszug.vorname);
+      lines.push('Geburtsdatum: ' + toSwiss(data.auszug.geburtsdatum));
+      lines.push('Nationalität: ' + data.auszug.nationalitaet);
+      lines.push('Auszugsdatum: ' + toSwiss(data.auszug.datum));
+      if (data.auszug.wegzug) lines.push('Wegzug nach: ' + data.auszug.wegzug);
+    }
+
+    if (data.type === 'einzug' || data.type === 'beide') {
+      lines.push('');
+      lines.push('--- 4. EINZIEHENDE PERSON ---');
+      lines.push('Name: ' + data.einzug.name);
+      lines.push('Vorname: ' + data.einzug.vorname);
+      lines.push('Geburtsdatum: ' + toSwiss(data.einzug.geburtsdatum));
+      lines.push('Nationalität: ' + data.einzug.nationalitaet);
+      lines.push('Einzugsdatum: ' + toSwiss(data.einzug.datum));
+      if (data.einzug.zuzug) lines.push('Zuzug von: ' + data.einzug.zuzug);
+    }
+
+    if (data.bemerkungen) {
+      lines.push('');
+      lines.push('Bemerkungen: ' + data.bemerkungen);
+    }
+
+    lines.push('');
+    lines.push('Freundliche Grüsse');
+    lines.push(f.firmaName);
+
+    return lines.filter(function (l) { return l !== undefined; }).join('\n');
+  }
+
+  // ===== Print Formular =====
+  // Builds the form HTML (reusable for print, PDF download, and Resend attachment)
+  function buildFormularHTML(data, opts) {
+    opts = opts || {};
+    var f = loadFirma();
+    var html = '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><title>Ein-/Auszugsmeldung</title>' +
+      '<style>@page{margin:20mm;size:A4}*{box-sizing:border-box;margin:0;padding:0}' +
+      'body{font-family:"Helvetica Neue",Arial,sans-serif;font-size:11px;color:#1a1a1a;line-height:1.6}' +
+      'h1{font-size:16px;font-weight:700;margin-bottom:2px}' +
+      'h2{font-size:13px;font-weight:700;margin:14px 0 6px;color:#1a1a1a}' +
+      'table{width:100%;border-collapse:collapse;margin-bottom:8px}' +
+      'td{padding:5px 0;font-size:11px;vertical-align:top}' +
+      'td:first-child{width:200px;color:#555;font-weight:500}' +
+      'td:last-child{border-bottom:0.5px dotted #bbb}' +
+      '</style></head><body>' +
+
+      '<h1>Ein- und Auszugsmeldungen</h1>' +
+      '<div style="font-size:10px;color:#555;margin-bottom:16px"><strong>Meldung an:</strong> Einwohnerdienste, 5430 Wettingen<br/>' + GEMEINDE_EMAIL + '</div>' +
+
+      '<h2>1. Liegenschaftsverwaltung / Vermieter</h2>' +
+      '<table>' +
+      row('Name des Vermieters', f.firmaName) +
+      row('Adresse', f.firmaAdresse + ', ' + f.firmaPlz + ' ' + f.firmaStadt) +
+      row('Name Kontaktperson', 'Admin') +
+      row('Telefon', f.firmaPhone) +
+      row('E-Mail', f.firmaMail) +
+      '</table>' +
+
+      '<h2>2. Liegenschaft / Wohnung</h2>' +
+      '<table>' +
+      row('Strasse, Hausnummer', 'Alberich Zwyssigstrasse 81') +
+      row('PLZ, Ort', '5430 Wettingen') +
+      row('Stockwerk, Lage, Zimmer-Nr.', data.stockwerk || data.unit || '') +
+      row('Mitbewohnende', data.mitbewohner || '') +
+      '</table>';
+
+    if (data.type === 'auszug' || data.type === 'beide') {
+      html += '<h2>3. Ausziehende Person</h2><table>' +
+        row('Auszugsdatum', toSwiss(data.auszug.datum)) +
+        row('Name', data.auszug.name) +
+        row('Vorname', data.auszug.vorname) +
+        row('Geburtsdatum / Nationalität', toSwiss(data.auszug.geburtsdatum) + ' / ' + data.auszug.nationalitaet) +
+        row('Wegzug nach (Adresse, PLZ, Ort)', data.auszug.wegzug || '') +
+        '</table>';
+    }
+
+    if (data.type === 'einzug' || data.type === 'beide') {
+      html += '<h2>4. Einziehende Person</h2><table>' +
+        row('Einzugsdatum', toSwiss(data.einzug.datum)) +
+        row('Name', data.einzug.name) +
+        row('Vorname', data.einzug.vorname) +
+        row('Geburtsdatum / Nationalität', toSwiss(data.einzug.geburtsdatum) + ' / ' + data.einzug.nationalitaet) +
+        row('Zuzug von (Adresse, PLZ, Ort)', data.einzug.zuzug || '') +
+        '</table>';
+    }
+
+    if (data.bemerkungen) {
+      html += '<div style="margin-top:10px"><strong>Bemerkungen:</strong> ' + esc(data.bemerkungen) + '</div>';
+    }
+
+    html += '<div style="margin-top:24px"><table>' +
+      row('Ort, Datum, Unterschrift', f.firmaStadt + ', ' + toSwiss(today())) +
+      '</table></div>' +
+      '<div style="margin-top:24px;font-size:9px;color:#888">Rechtsgrundlage: Register und Meldegesetz (RMG) § 10 Abs. 1 lit. a vom 01.05.2009</div>';
+
+    if (!opts.noAutoprint) {
+      html += '<scr' + 'ipt>window.onload=function(){setTimeout(function(){window.print()},400)}</scr' + 'ipt>';
+    }
+
+    html += '</body></html>';
+    return html;
+  }
+
+  function printFormular(data) {
+    var html = buildFormularHTML(data);
+    var win = window.open('', '_blank');
+    if (!win) { alert('Popup blockiert'); return; }
+    win.document.write(html);
+    win.document.close();
+  }
+
+  // Generate PDF via print-to-PDF and open in new window for user to save
+  function openFormForPdfSave(data) {
+    // Open form in new window — browser's "Als PDF speichern" in print dialog
+    var html = buildFormularHTML(data, { noAutoprint: true });
+    var win = window.open('', '_blank');
+    if (!win) { alert('Popup blockiert'); return null; }
+    win.document.write(html);
+    win.document.close();
+
+    // Add a save-hint banner at the top
+    try {
+      var banner = win.document.createElement('div');
+      banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#C0392B;color:#fff;padding:10px 20px;font-size:13px;font-family:sans-serif;text-align:center;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.3)';
+      banner.innerHTML = '💾 <strong>Strg+P</strong> (oder Cmd+P) → <strong>"Als PDF speichern"</strong> wählen → Danach dieses Fenster schliessen und die PDF an die E-Mail anhängen';
+      win.document.body.insertBefore(banner, win.document.body.firstChild);
+      // Add padding so content isn't hidden behind banner
+      win.document.body.style.paddingTop = '50px';
+    } catch (e) {}
+
+    return win;
+  }
+
+  function row(label, value) {
+    return '<tr><td>' + esc(label) + '</td><td>' + esc(value || '') + '</td></tr>';
+  }
+
+  // ===== List view (injected into An/Abmeldung page) =====
+  function renderList() {
+    var meldungen = loadMeldungen();
+    var tenants = loadTenants();
+    var tMap = {};
+    tenants.forEach(function (t) { tMap[t.id] = t; });
+
+    meldungen.sort(function (a, b) {
+      var so = { offen: 0, gesendet: 1, erledigt: 2 };
+      if (so[a.status] !== so[b.status]) return so[a.status] - so[b.status];
+      return new Date(b.createdAt) - new Date(a.createdAt);
+    });
+
+    var statusBadge = function (s) {
+      if (s === 'offen') return '<span style="padding:3px 10px;border-radius:999px;font-size:10px;font-weight:600;background:#fef2f2;color:#991b1b">Offen</span>';
+      if (s === 'gesendet') return '<span style="padding:3px 10px;border-radius:999px;font-size:10px;font-weight:600;background:#fffbeb;color:#92400e">Gesendet</span>';
+      return '<span style="padding:3px 10px;border-radius:999px;font-size:10px;font-weight:600;background:#dcfce7;color:#166534">Erledigt</span>';
+    };
+
+    var typeLabel = function (t) {
+      if (t === 'einzug') return '📥 Einzug';
+      if (t === 'auszug') return '📤 Auszug';
+      return '🔄 Wechsel';
+    };
+
+    var rows = meldungen.map(function (m) {
+      return '<tr class="am-row" data-id="' + m.id + '" style="border-bottom:1px solid ' + COL_BORDER + ';cursor:pointer" onmouseover="this.style.background=\'' + COL_BG + '\'" onmouseout="this.style.background=\'transparent\'">' +
+        '<td style="padding:10px 14px;font-size:12px">' + typeLabel(m.type) + '</td>' +
+        '<td style="padding:10px 8px;font-size:12px;font-weight:600">' + esc(m.tenantName) + '</td>' +
+        '<td style="padding:10px 8px;font-size:12px;color:' + COL_GRAY + '">' + esc(m.stockwerk || m.unit || '—') + '</td>' +
+        '<td style="padding:10px 8px;font-size:12px;color:' + COL_GRAY + '">' + toSwiss(m.createdAt) + '</td>' +
+        '<td style="padding:10px 8px;text-align:center">' + statusBadge(m.status) + '</td>' +
+        '<td style="padding:10px 8px;text-align:right">' +
+          (m.status !== 'erledigt' ? '<button class="am-done" data-id="' + m.id + '" style="padding:4px 10px;border-radius:6px;border:1px solid #bbf7d0;background:#f0fdf4;color:#16a34a;cursor:pointer;font-size:10px;font-weight:600;font-family:inherit">✓ Erledigt</button>' : '') +
+        '</td>' +
+        '</tr>';
+    }).join('');
+
+    if (!meldungen.length) {
+      rows = '<tr><td colspan="6" style="padding:40px;text-align:center;color:' + COL_GRAY + '"><div style="font-size:32px;margin-bottom:8px">🏛</div>Keine Meldungen vorhanden</td></tr>';
+    }
+
+    return '<div id="am-list-section" style="margin-top:20px;font-family:\'DM Sans\',system-ui,sans-serif">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">' +
+      '<div>' +
+      '<div style="font-size:18px;font-weight:700;color:' + COL_DARK + '">🏛 Gemeinde-Meldungen</div>' +
+      '<div style="font-size:12px;color:' + COL_GRAY + ';margin-top:2px">' + meldungen.length + ' Meldungen · ' + meldungen.filter(function (m) { return m.status === 'offen'; }).length + ' offen</div>' +
+      '</div>' +
+      '<button id="am-new-btn" style="padding:10px 18px;border-radius:8px;border:none;background:' + COL_RED + ';color:#fff;cursor:pointer;font-size:13px;font-weight:600;font-family:inherit">+ Neue Meldung</button>' +
+      '</div>' +
+      '<div style="background:#fff;border:1px solid ' + COL_BORDER + ';border-radius:10px;overflow:hidden">' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<thead><tr style="background:' + COL_BG + '">' +
+      '<th style="text-align:left;padding:10px 14px;font-size:10px;font-weight:700;text-transform:uppercase;color:' + COL_GRAY + '">Art</th>' +
+      '<th style="text-align:left;padding:10px 8px;font-size:10px;font-weight:700;text-transform:uppercase;color:' + COL_GRAY + '">Mieter</th>' +
+      '<th style="text-align:left;padding:10px 8px;font-size:10px;font-weight:700;text-transform:uppercase;color:' + COL_GRAY + '">Zimmer</th>' +
+      '<th style="text-align:left;padding:10px 8px;font-size:10px;font-weight:700;text-transform:uppercase;color:' + COL_GRAY + '">Datum</th>' +
+      '<th style="text-align:center;padding:10px 8px;font-size:10px;font-weight:700;text-transform:uppercase;color:' + COL_GRAY + '">Status</th>' +
+      '<th style="text-align:right;padding:10px 8px;font-size:10px;font-weight:700;text-transform:uppercase;color:' + COL_GRAY + '"></th>' +
+      '</tr></thead>' +
+      '<tbody>' + rows + '</tbody>' +
+      '</table></div></div>';
+  }
+
+  function wireList(section) {
+    var newBtn = document.getElementById('am-new-btn');
+    if (newBtn) newBtn.addEventListener('click', function () { openFormDialog(); });
+
+    section.querySelectorAll('.am-row').forEach(function (row) {
+      row.addEventListener('click', function (e) {
+        if (e.target.closest('.am-done')) return;
+        var id = row.getAttribute('data-id');
+        var m = loadMeldungen().find(function (x) { return x.id === id; });
+        if (m) openFormDialog({ meldung: m, tenantId: m.tenantId, type: m.type });
+      });
+    });
+
+    section.querySelectorAll('.am-done').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var id = btn.getAttribute('data-id');
+        var arr = loadMeldungen();
+        for (var i = 0; i < arr.length; i++) {
+          if (arr[i].id === id) { arr[i].status = 'erledigt'; arr[i].doneAt = new Date().toISOString(); break; }
+        }
+        saveMeldungen(arr);
+        refreshList();
+        toast('✓ Als erledigt markiert');
+      });
+    });
+  }
+
+  // ===== Injection into An/Abmeldung page =====
+  function isOnAnAbmeldungPage() {
+    var headings = document.querySelectorAll('h1, h2');
+    for (var i = 0; i < headings.length; i++) {
+      var t = (headings[i].textContent || '').trim();
+      if (t === 'An- und Abmeldung' || t.indexOf('An/Abmeldung') !== -1 || t.indexOf('Abmeldung') !== -1) return true;
+    }
+    return false;
+  }
+
+  function refreshList() {
+    var old = document.getElementById('am-list-section');
+    if (old) old.remove();
+    injectList();
+  }
+
+  function injectList() {
+    if (!isOnAnAbmeldungPage()) {
+      var old = document.getElementById('am-list-section');
+      if (old) old.remove();
+      return;
+    }
+    if (document.getElementById('am-list-section')) return;
+
+    var main = document.querySelector('.page-padding');
+    if (!main) {
+      var headings = document.querySelectorAll('h1, h2');
+      for (var i = 0; i < headings.length; i++) {
+        if ((headings[i].textContent || '').indexOf('Abmeldung') !== -1) {
+          main = headings[i].parentElement;
+          break;
+        }
+      }
+    }
+    if (!main) return;
+
+    var wrapper = document.createElement('div');
+    wrapper.innerHTML = renderList();
+    var section = wrapper.firstChild;
+    main.appendChild(section);
+    wireList(section);
+    LOG('list injected');
+  }
+
+  // ===== Popup for new/departing tenants =====
+  var popupShown = {};
+
+  function checkForPendingMeldungen() {
+    var tenants = loadTenants();
+    var meldungen = loadMeldungen();
+    var now = new Date();
+    now.setHours(0, 0, 0, 0);
+
+    tenants.forEach(function (t) {
+      var name = t.nameRaw || (t.vorname + ' ' + t.nachname);
+
+      // New tenant (startDate within last 14 days, no meldung yet)
+      if (t.startDate) {
+        var start = new Date(t.startDate);
+        var daysSinceStart = Math.ceil((now - start) / 86400000);
+        if (daysSinceStart >= -14 && daysSinceStart <= 30) {
+          var hasEinzug = meldungen.find(function (m) {
+            return m.tenantId === t.id && (m.type === 'einzug' || m.type === 'beide');
+          });
+          if (!hasEinzug && !popupShown['ein_' + t.id]) {
+            popupShown['ein_' + t.id] = true;
+            showMeldungPopup(t, 'einzug', daysSinceStart);
+          }
+        }
+      }
+
+      // Departing tenant (endDate within next 14 days or past 30 days)
+      if (t.endDate) {
+        var end = new Date(t.endDate);
+        var daysUntilEnd = Math.ceil((end - now) / 86400000);
+        if (daysUntilEnd >= -30 && daysUntilEnd <= 14) {
+          var hasAuszug = meldungen.find(function (m) {
+            return m.tenantId === t.id && (m.type === 'auszug' || m.type === 'beide');
+          });
+          if (!hasAuszug && !popupShown['aus_' + t.id]) {
+            popupShown['aus_' + t.id] = true;
+            showMeldungPopup(t, 'auszug', daysUntilEnd);
+          }
+        }
+      }
+    });
+  }
+
+  function showMeldungPopup(tenant, type, daysOffset) {
+    var name = tenant.nameRaw || (tenant.vorname + ' ' + tenant.nachname);
+    var isEinzug = type === 'einzug';
+    var title = isEinzug ? 'Gemeinde-Anmeldung' : 'Gemeinde-Abmeldung';
+    var color = isEinzug ? '#16a34a' : '#dc2626';
+    var bgColor = isEinzug ? '#f0fdf4' : '#fef2f2';
+    var borderColor = isEinzug ? '#bbf7d0' : '#fecaca';
+
+    var timeText = '';
+    if (daysOffset === 0) timeText = 'heute';
+    else if (daysOffset < 0) timeText = 'vor ' + Math.abs(daysOffset) + ' Tagen';
+    else timeText = 'in ' + daysOffset + ' Tagen';
+
+    var popup = document.createElement('div');
+    popup.style.cssText =
+      'position:fixed;bottom:20px;right:20px;max-width:380px;background:#fff;border:2px solid ' + borderColor + ';' +
+      'border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,0.25);z-index:99995;font-family:"DM Sans",system-ui,sans-serif;overflow:hidden;' +
+      'animation:slideUp 0.3s ease;';
+
+    popup.innerHTML =
+      '<div style="padding:14px 18px;background:' + bgColor + ';border-bottom:1px solid ' + borderColor + ';display:flex;align-items:center;gap:10px">' +
+      '<span style="font-size:22px">🏛</span>' +
+      '<div style="flex:1">' +
+      '<div style="font-size:14px;font-weight:700;color:' + color + '">' + title + ' nötig</div>' +
+      '<div style="font-size:11px;color:' + color + ';margin-top:1px">' + esc(name) + ' — ' + (isEinzug ? 'Einzug' : 'Auszug') + ' ' + timeText + '</div>' +
+      '</div>' +
+      '</div>' +
+      '<div style="padding:14px 18px">' +
+      '<div style="display:flex;gap:8px">' +
+      '<button class="am-popup-now" style="flex:1;padding:9px;border-radius:8px;border:none;background:' + COL_RED + ';color:#fff;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit">📧 Jetzt erledigen</button>' +
+      '<button class="am-popup-done" style="flex:1;padding:9px;border-radius:8px;border:1px solid #bbf7d0;background:#f0fdf4;color:#16a34a;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit">✓ Bereits erledigt</button>' +
+      '<button class="am-popup-later" style="padding:9px;border-radius:8px;border:1px solid ' + COL_BORDER + ';background:#fff;cursor:pointer;font-size:12px;font-family:inherit;color:' + COL_GRAY + '">Später</button>' +
+      '</div></div>';
+
+    document.body.appendChild(popup);
+
+    popup.querySelector('.am-popup-now').addEventListener('click', function () {
+      popup.remove();
+      openFormDialog({ tenantId: tenant.id, type: type });
+    });
+
+    popup.querySelector('.am-popup-done').addEventListener('click', function () {
+      var data = {
+        id: genId(),
+        tenantId: tenant.id,
+        tenantName: name,
+        type: type,
+        unit: tenant.unit || '',
+        stockwerk: stockwerkFromUnit(tenant.unit || ''),
+        status: 'erledigt',
+        doneAt: new Date().toISOString(),
+        createdAt: new Date().toISOString()
+      };
+      var arr = loadMeldungen();
+      arr.push(data);
+      saveMeldungen(arr);
+      popup.remove();
+      toast('✓ Als bereits erledigt markiert');
+    });
+
+    popup.querySelector('.am-popup-later').addEventListener('click', function () {
+      popup.remove();
+    });
+  }
+
+  // ===== Init =====
+  function init() {
+    // Polling for An/Abmeldung page
+    setInterval(function () {
+      try { injectList(); } catch (e) {}
+    }, 1200);
+    [400, 1000, 2500].forEach(function (d) {
+      setTimeout(function () { try { injectList(); } catch (e) {} }, d);
+    });
+
+    // Check for pending meldungen (popup)
+    setTimeout(function () {
+      try { autoCreateMeldungen(); } catch (e) { LOG('auto-create failed', e); }
+      try { checkForPendingMeldungen(); } catch (e) { LOG('popup check failed', e); }
+    }, 3000);
+
+    // Add animation style
+    if (!document.getElementById('am-anim-style')) {
+      var s = document.createElement('style');
+      s.id = 'am-anim-style';
+      s.textContent = '@keyframes slideUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}';
+      document.head.appendChild(s);
+    }
+
+    // === Expose automation API globally ===
+    // These functions can be called by Cron Jobs (Vercel/Supabase Edge Functions)
+    // or manually from console for testing
+    window.openAnmeldungDialog = openFormDialog;
+    window.__anmeldungAPI = {
+      // Run daily: auto-creates meldungen for new/departing tenants
+      autoCreate: autoCreateMeldungen,
+      // Get all open meldungen (for cron to send emails)
+      getOpen: function () {
+        return loadMeldungen().filter(function (m) { return m.status === 'offen'; });
+      },
+      // Get meldungen ready to send (status=offen, all required fields filled)
+      getReadyToSend: function () {
+        return loadMeldungen().filter(function (m) {
+          if (m.status !== 'offen') return false;
+          if (m.type === 'einzug' || m.type === 'beide') {
+            if (!m.einzug || !m.einzug.name || !m.einzug.datum) return false;
+          }
+          if (m.type === 'auszug' || m.type === 'beide') {
+            if (!m.auszug || !m.auszug.name || !m.auszug.datum) return false;
+          }
+          return true;
+        });
+      },
+      // Build email payload for Resend API (returns {to, subject, text, html, formHtml})
+      // formHtml is the complete Gemeinde form HTML → convert to PDF on server for attachment
+      buildEmailPayload: function (meldungId) {
+        var m = loadMeldungen().find(function (x) { return x.id === meldungId; });
+        if (!m) return null;
+        var f = loadFirma();
+        var subject = 'Ein-/Auszugsmeldung — ' + (m.tenantName || '') + ' — Alberich Zwyssigstrasse 81';
+        var textBody = buildEmailBody(m, f);
+        var formHtml = buildFormularHTML(m, { noAutoprint: true });
+        return {
+          to: GEMEINDE_EMAIL,
+          from: f.firmaMail || 'info@cityapartments.ch',
+          subject: subject,
+          text: textBody + '\n\n---\nFormular als PDF im Anhang.',
+          formHtml: formHtml,  // → Server converts to PDF and attaches
+          meldungId: meldungId,
+          // Ready-to-use Resend payload structure:
+          resendPayload: {
+            to: GEMEINDE_EMAIL,
+            from: f.firmaMail || 'info@cityapartments.ch',
+            subject: subject,
+            text: textBody,
+            attachments: [
+              {
+                filename: 'Gemeinde_Meldung_' + (m.tenantName || '').replace(/\s+/g, '_') + '.pdf',
+                // content: '...base64...'  ← server fills this from formHtml→PDF conversion
+                contentType: 'application/pdf'
+              }
+            ]
+          }
+        };
+      },
+      // Mark as sent (called after Resend sends successfully)
+      markSent: function (meldungId) {
+        var arr = loadMeldungen();
+        for (var i = 0; i < arr.length; i++) {
+          if (arr[i].id === meldungId) {
+            arr[i].status = 'gesendet';
+            arr[i].sentAt = new Date().toISOString();
+            arr[i].sentVia = 'resend';
+            break;
+          }
+        }
+        saveMeldungen(arr);
+        LOG('marked sent via API:', meldungId);
+      },
+      // Mark as done
+      markDone: function (meldungId) {
+        var arr = loadMeldungen();
+        for (var i = 0; i < arr.length; i++) {
+          if (arr[i].id === meldungId) {
+            arr[i].status = 'erledigt';
+            arr[i].doneAt = new Date().toISOString();
+            break;
+          }
+        }
+        saveMeldungen(arr);
+      },
+      // Full auto-send: create → build email → return payload (cron calls Resend with this)
+      processPending: function () {
+        autoCreateMeldungen();
+        var ready = this.getReadyToSend();
+        return ready.map(function (m) {
+          return { meldung: m, email: window.__anmeldungAPI.buildEmailPayload(m.id) };
+        });
+      }
+    };
+
+    LOG('module ready — automation API exposed as window.__anmeldungAPI');
+  }
+
+  // ===== Auto-create meldungen for new/departing tenants =====
+  // Unlike checkForPendingMeldungen (which shows popups), this SILENTLY creates
+  // meldung records so they appear in the list and can be processed by cron.
+  function autoCreateMeldungen() {
+    var tenants = loadTenants();
+    var meldungen = loadMeldungen();
+    var now = new Date();
+    now.setHours(0, 0, 0, 0);
+    var created = 0;
+
+    tenants.forEach(function (t) {
+      var name = t.nameRaw || (t.vorname + ' ' + t.nachname);
+
+      // Einzug: startDate within last 30 days
+      if (t.startDate) {
+        var start = new Date(t.startDate);
+        var daysSinceStart = Math.ceil((now - start) / 86400000);
+        if (daysSinceStart >= 0 && daysSinceStart <= 30) {
+          var hasEinzug = meldungen.find(function (m) {
+            return m.tenantId === t.id && (m.type === 'einzug' || m.type === 'beide');
+          });
+          if (!hasEinzug) {
+            var m = {
+              id: genId(),
+              tenantId: t.id,
+              tenantName: name,
+              type: 'einzug',
+              unit: t.unit || '',
+              stockwerk: stockwerkFromUnit(t.unit || ''),
+              mitbewohner: '',
+              einzug: {
+                name: t.nachname || '',
+                vorname: t.vorname || '',
+                geburtsdatum: t.geburtsdatum || '',
+                nationalitaet: t.nationalitaet || 'CH',
+                datum: t.startDate || '',
+                zuzug: ''
+              },
+              auszug: {},
+              bemerkungen: '',
+              status: 'offen',
+              autoCreated: true,
+              createdAt: new Date().toISOString()
+            };
+            meldungen.push(m);
+            created++;
+            LOG('auto-created Einzug for', name);
+          }
+        }
+      }
+
+      // Auszug: endDate within next 14 days or past 30 days
+      if (t.endDate) {
+        var end = new Date(t.endDate);
+        var daysUntilEnd = Math.ceil((end - now) / 86400000);
+        if (daysUntilEnd >= -30 && daysUntilEnd <= 14) {
+          var hasAuszug = meldungen.find(function (m) {
+            return m.tenantId === t.id && (m.type === 'auszug' || m.type === 'beide');
+          });
+          if (!hasAuszug) {
+            var m2 = {
+              id: genId(),
+              tenantId: t.id,
+              tenantName: name,
+              type: 'auszug',
+              unit: t.unit || '',
+              stockwerk: stockwerkFromUnit(t.unit || ''),
+              mitbewohner: '',
+              auszug: {
+                name: t.nachname || '',
+                vorname: t.vorname || '',
+                geburtsdatum: t.geburtsdatum || '',
+                nationalitaet: t.nationalitaet || 'CH',
+                datum: t.endDate || '',
+                wegzug: ''
+              },
+              einzug: {},
+              bemerkungen: '',
+              status: 'offen',
+              autoCreated: true,
+              createdAt: new Date().toISOString()
+            };
+            meldungen.push(m2);
+            created++;
+            LOG('auto-created Auszug for', name);
+          }
+        }
+      }
+    });
+
+    if (created > 0) {
+      saveMeldungen(meldungen);
+      LOG(created + ' Meldungen automatisch erstellt');
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(init, 600); });
+  } else {
+    setTimeout(init, 600);
   }
 })();
 
