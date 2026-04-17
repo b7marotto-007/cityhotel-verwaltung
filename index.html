@@ -658,6 +658,7 @@ react-dom/cjs/react-dom-client.production.js:
 
 
 
+
 <script id="letterhead-module">
 /* Letterhead — Shared template matching invoice exactly */
 (function () {
@@ -6359,6 +6360,7 @@ react-dom/cjs/react-dom-client.production.js:
     { id: 'checkin', label: '📥 Check-in', color: '#059669', bg: '#ecfdf5' },
     { id: 'checkout', label: '📤 Check-out', color: '#d97706', bg: '#fffbeb' },
     { id: 'vertrag', label: '📋 Vertragstermin', color: '#2563eb', bg: '#eff6ff' },
+    { id: 'abmeldung', label: '🏛 Gemeindeabmeldung', color: '#be123c', bg: '#fff1f2' },
     { id: 'reinigung', label: '🧹 Reinigung', color: '#0891b2', bg: '#ecfeff' },
     { id: 'zahlung', label: '💰 Zahlungsfrist', color: '#16a34a', bg: '#f0fdf4' },
     { id: 'sonstiges', label: '📌 Sonstiges', color: '#6b7280', bg: '#f9fafb' }
@@ -6830,6 +6832,133 @@ react-dom/cjs/react-dom-client.production.js:
     LOG('reminder banner shown:', parts.join(', '));
   }
 
+  // ===== Auto: Gemeindeabmeldung bei Auszug =====
+  // Checks all tenants with endDate within 14 days or already past.
+  // Auto-creates an "abmeldung" event if none exists yet for that tenant.
+  // Shows popup reminder for urgent cases.
+  function checkAbmeldungen() {
+    var tenants = loadTenants();
+    var events = loadEvents();
+    var today_d = new Date();
+    today_d.setHours(0, 0, 0, 0);
+    var created = 0;
+
+    tenants.forEach(function (t) {
+      if (!t.endDate) return;
+      var endDate = new Date(t.endDate);
+      if (isNaN(endDate.getTime())) return;
+
+      // Only check tenants ending within next 14 days OR already ended (up to 60 days ago)
+      var diffDays = Math.ceil((endDate - today_d) / 86400000);
+      if (diffDays > 14 || diffDays < -60) return;
+
+      var name = t.nameRaw || (t.vorname + ' ' + t.nachname);
+
+      // Check if abmeldung event already exists for this tenant
+      var existing = events.find(function (ev) {
+        return ev.category === 'abmeldung' && ev.tenantId === t.id;
+      });
+
+      if (existing) {
+        // Event exists — check if it's still not done and show popup for overdue
+        if (!existing.done && diffDays <= 0) {
+          showAbmeldungPopup(t, existing, diffDays);
+        }
+        return;
+      }
+
+      // No event yet — create one automatically
+      var evDate = t.endDate; // Abmeldung should happen on endDate
+      var ev = {
+        id: genId(),
+        title: 'Gemeindeabmeldung: ' + name,
+        date: evDate,
+        time: '',
+        category: 'abmeldung',
+        tenantId: t.id,
+        reminderDays: 7, // remind 7 days before
+        notes: 'Mieter ' + name + ' zieht aus am ' + toSwiss(t.endDate) + '.\n' +
+          (t.unit ? 'Zimmer: ' + t.unit + '\n' : '') +
+          (t.nationalitaet && t.nationalitaet !== 'CH' ? 'Nationalität: ' + t.nationalitaet + ' — evtl. Ausländeramt informieren\n' : '') +
+          'Bei der Einwohnerkontrolle / Gemeinde abmelden.\n' +
+          'Aufgaben:\n' +
+          '☐ Abmeldung bei Gemeinde\n' +
+          '☐ Schlüsselrückgabe\n' +
+          '☐ Zimmer-Kontrolle\n' +
+          '☐ Kaution-Rückerstattung prüfen',
+        done: false,
+        autoCreated: true,
+        createdAt: new Date().toISOString()
+      };
+      var arr = loadEvents();
+      arr.push(ev);
+      saveEvents(arr);
+      created++;
+      LOG('auto-created abmeldung event for', name, 'endDate:', t.endDate);
+    });
+
+    if (created > 0) {
+      LOG(created + ' Abmeldung-Events automatisch erstellt');
+    }
+  }
+
+  // Persistent popup for urgent abmeldungen (tenant already moved out, not yet done)
+  var shownPopups = {};
+  function showAbmeldungPopup(tenant, event, diffDays) {
+    // Only show each popup once per session
+    if (shownPopups[event.id]) return;
+    shownPopups[event.id] = true;
+
+    var name = tenant.nameRaw || (tenant.vorname + ' ' + tenant.nachname);
+    var daysText = diffDays === 0 ? 'heute' : 'vor ' + Math.abs(diffDays) + ' Tagen';
+
+    var popup = document.createElement('div');
+    popup.id = 'abmeld-popup-' + event.id;
+    popup.style.cssText =
+      'position:fixed;bottom:20px;right:20px;max-width:380px;background:#fff;border:2px solid #be123c;' +
+      'border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,0.25);z-index:99995;font-family:"DM Sans",system-ui,sans-serif;overflow:hidden;' +
+      'animation:slideUp 0.3s ease;';
+
+    popup.innerHTML =
+      '<div style="padding:14px 18px;background:#fff1f2;border-bottom:1px solid #fecdd3;display:flex;align-items:center;gap:10px">' +
+      '<span style="font-size:22px">🏛</span>' +
+      '<div style="flex:1">' +
+      '<div style="font-size:14px;font-weight:700;color:#be123c">Gemeindeabmeldung ausstehend</div>' +
+      '<div style="font-size:11px;color:#9f1239;margin-top:1px">' + esc(name) + ' — ausgezogen ' + daysText + '</div>' +
+      '</div>' +
+      '</div>' +
+      '<div style="padding:14px 18px;font-size:12px;color:' + COL_DARK + ';line-height:1.7">' +
+      '<p style="margin-bottom:6px"><strong>' + esc(name) + '</strong> ist ' + daysText + ' ausgezogen' +
+      (tenant.unit ? ' (Zimmer ' + esc(tenant.unit) + ')' : '') + '.</p>' +
+      '<p style="margin-bottom:10px;color:#be123c;font-weight:600">Bitte bei der Einwohnerkontrolle / Gemeinde abmelden!</p>' +
+      '<div style="display:flex;gap:8px">' +
+      '<button class="abmeld-done" data-id="' + event.id + '" style="flex:1;padding:9px;border-radius:8px;border:none;background:#16a34a;color:#fff;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit">✓ Erledigt</button>' +
+      '<button class="abmeld-later" data-id="' + event.id + '" style="flex:1;padding:9px;border-radius:8px;border:1px solid ' + COL_BORDER + ';background:#fff;cursor:pointer;font-size:12px;font-family:inherit">Später</button>' +
+      '</div>' +
+      '</div>';
+
+    document.body.appendChild(popup);
+
+    // Add slide-up animation
+    if (!document.getElementById('abmeld-anim-style')) {
+      var s = document.createElement('style');
+      s.id = 'abmeld-anim-style';
+      s.textContent = '@keyframes slideUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}';
+      document.head.appendChild(s);
+    }
+
+    popup.querySelector('.abmeld-done').addEventListener('click', function () {
+      toggleDone(event.id);
+      popup.remove();
+      toast('✓ Abmeldung als erledigt markiert');
+      refreshView();
+    });
+
+    popup.querySelector('.abmeld-later').addEventListener('click', function () {
+      popup.remove();
+    });
+  }
+
   // ===== Init =====
   function init() {
     window.openEventDialog = openCreateDialog;
@@ -6844,12 +6973,15 @@ react-dom/cjs/react-dom-client.production.js:
 
     // Badge + banner
     setTimeout(function () {
+      try { checkAbmeldungen(); } catch (e) { LOG('abmeld check failed', e); }
       try { updateSidebarBadge(); } catch (e) {}
       try { showReminderBanner(); } catch (e) {}
     }, 2000);
+    // Re-check daily (if app stays open)
     setInterval(function () {
+      try { checkAbmeldungen(); } catch (e) {}
       try { updateSidebarBadge(); } catch (e) {}
-    }, 8000);
+    }, 3600000); // every hour
 
     LOG('module ready');
   }
