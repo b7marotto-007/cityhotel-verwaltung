@@ -660,6 +660,7 @@ react-dom/cjs/react-dom-client.production.js:
 
 
 
+
 <script id="letterhead-module">
 /* Letterhead — Shared template matching invoice exactly */
 (function () {
@@ -6984,6 +6985,467 @@ react-dom/cjs/react-dom-client.production.js:
       try { updateSidebarBadge(); } catch (e) {}
     }, 3600000); // every hour
 
+    LOG('module ready');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(init, 600); });
+  } else {
+    setTimeout(init, 600);
+  }
+})();
+
+</script>
+<script id="parkplatz-module">
+/* Parkplatz-Verwaltung Module
+ * Manages parking spot assignments and payments separately from the main tenant system.
+ * Injects into the Zahlungen page as a separate section below the tenant list.
+ * Data stored in pm_parkplaetze (localStorage + Supabase).
+ *
+ * Data structure pm_parkplaetze:
+ * {
+ *   slots: [
+ *     { id: 'pp_1', name: 'Parkplatz 1', rent: 60, tenantId: 'xxx'|null, tenantName: '', startDate: '', endDate: '', active: true },
+ *     ...
+ *   ],
+ *   payments: [
+ *     { id: 'ppp_xxx', slotId: 'pp_1', tenantId: 'xxx', month: 0-11, year: 2026, paid: true, paidDate: '', channel: 'bank'|'bar', amount: 60 },
+ *     ...
+ *   ]
+ * }
+ */
+(function () {
+  'use strict';
+  var LOG = function () {
+    try { console.log.apply(console, ['[parkplatz]'].concat([].slice.call(arguments))); } catch (e) {}
+  };
+
+  var COL_RED = '#C0392B';
+  var COL_DARK = '#0C0F1A';
+  var COL_GRAY = '#8B8A86';
+  var COL_BORDER = '#E8E5DE';
+  var COL_BG = '#F6F5F1';
+  var SLOT_RENT = 60;
+  var MONTHS_SHORT = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+
+  // Storage
+  function loadCache(key) {
+    try { var v = localStorage.getItem('cache_' + key); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+  }
+  function saveCache(key, value) {
+    try { localStorage.setItem('cache_' + key, JSON.stringify(value)); } catch (e) {}
+  }
+  function supaPush(key, value) {
+    try {
+      var c = JSON.parse(localStorage.getItem('_supa_cfg') || 'null');
+      if (!c) return;
+      fetch(c.url + '/rest/v1/pm_kv', {
+        method: 'POST',
+        headers: { apikey: c.key, Authorization: 'Bearer ' + c.key, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify({ key: key, value: JSON.stringify(value), updated_at: new Date().toISOString() })
+      }).catch(function () {});
+    } catch (e) {}
+  }
+
+  function loadData() {
+    var d = loadCache('pm_parkplaetze');
+    if (d && d.slots) return d;
+    // Initialize with 12 slots from the Pe array data
+    var slots = [];
+    for (var i = 1; i <= 12; i++) {
+      slots.push({
+        id: 'pp_' + i,
+        name: 'Parkplatz ' + i,
+        rent: SLOT_RENT,
+        tenantId: null,
+        tenantName: '',
+        startDate: '',
+        endDate: '',
+        active: true
+      });
+    }
+    var initial = { slots: slots, payments: [] };
+    saveData(initial);
+    return initial;
+  }
+
+  function saveData(d) {
+    saveCache('pm_parkplaetze', d);
+    supaPush('pm_parkplaetze', d);
+  }
+
+  function loadTenants() { return loadCache('pm_tenants') || []; }
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function today() { return new Date().toISOString().slice(0, 10); }
+  function toSwiss(s) { if (!s) return ''; var m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? m[3] + '.' + m[2] + '.' + m[1] : s; }
+  function genId() { return 'ppp_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
+  function toast(msg) {
+    var t = document.createElement('div');
+    t.textContent = msg;
+    t.style.cssText = 'position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:#0c0f1a;color:#fff;padding:12px 22px;border-radius:999px;font-size:13px;font-family:"DM Sans",system-ui,sans-serif;z-index:99999;box-shadow:0 10px 30px rgba(0,0,0,0.3)';
+    document.body.appendChild(t);
+    setTimeout(function () { t.style.transition = 'opacity 0.4s'; t.style.opacity = '0'; }, 2000);
+    setTimeout(function () { t.remove(); }, 2500);
+  }
+
+  // Get current month/year from the Zahlungen page header (reads the displayed month)
+  function getCurrentMonthYear() {
+    // Try to read from the page
+    var now = new Date();
+    return { month: now.getMonth(), year: now.getFullYear() };
+  }
+
+  // Check if a slot payment exists for given month
+  function getSlotPayment(data, slotId, month, year) {
+    for (var i = 0; i < data.payments.length; i++) {
+      var p = data.payments[i];
+      if (p.slotId === slotId && p.month === month && p.year === year) return p;
+    }
+    return null;
+  }
+
+  // ===== Render =====
+  function renderSection() {
+    var data = loadData();
+    var tenants = loadTenants();
+    var now = new Date();
+    var cur = getCurrentMonthYear();
+    var activeTenants = tenants.filter(function (t) { return !t.endDate || new Date(t.endDate) >= now; });
+
+    // Stats
+    var assigned = data.slots.filter(function (s) { return s.tenantId && s.active; }).length;
+    var free = data.slots.filter(function (s) { return !s.tenantId || !s.active; }).length;
+    var sollMonth = assigned * SLOT_RENT;
+    var paidMonth = 0;
+    var openMonth = 0;
+    data.slots.forEach(function (s) {
+      if (!s.tenantId || !s.active) return;
+      var pay = getSlotPayment(data, s.id, cur.month, cur.year);
+      if (pay && pay.paid) paidMonth += pay.amount || SLOT_RENT;
+      else openMonth += SLOT_RENT;
+    });
+
+    // Build rows
+    var rowsHtml = data.slots.map(function (slot) {
+      var pay = getSlotPayment(data, slot.id, cur.month, cur.year);
+      var isPaid = pay && pay.paid;
+      var tenant = slot.tenantId ? tenants.find(function (t) { return t.id === slot.tenantId; }) : null;
+      var tName = tenant ? (tenant.nameRaw || tenant.vorname + ' ' + tenant.nachname) : slot.tenantName || '';
+      var tUnit = tenant ? (tenant.unit || '') : '';
+
+      var statusBadge, actionBtns;
+      if (!slot.tenantId || !slot.active) {
+        statusBadge = '<span style="padding:3px 10px;border-radius:999px;font-size:10px;font-weight:600;background:#f3f4f6;color:#6b7280">Frei</span>';
+        actionBtns = '<button class="pp-assign" data-slot="' + slot.id + '" style="padding:4px 10px;border-radius:6px;border:1px solid ' + COL_BORDER + ';background:#fff;cursor:pointer;font-size:11px;font-family:inherit">Zuweisen</button>';
+      } else {
+        if (isPaid) {
+          statusBadge = '<span style="padding:3px 10px;border-radius:999px;font-size:10px;font-weight:600;background:#dcfce7;color:#166534">Bezahlt</span>';
+        } else {
+          statusBadge = '<span style="padding:3px 10px;border-radius:999px;font-size:10px;font-weight:600;background:#fef2f2;color:#991b1b">Ausstehend</span>';
+        }
+        actionBtns =
+          (isPaid
+            ? '<button class="pp-unpay" data-slot="' + slot.id + '" style="padding:4px 8px;border-radius:6px;border:1px solid #fecaca;background:#fef2f2;color:#dc2626;cursor:pointer;font-size:11px;font-family:inherit">Zurücksetzen</button>'
+            : '<button class="pp-pay-bar" data-slot="' + slot.id + '" style="padding:4px 8px;border-radius:6px;border:1px solid #bbf7d0;background:#f0fdf4;color:#16a34a;cursor:pointer;font-size:11px;font-family:inherit">Bar</button>' +
+              '<button class="pp-pay-bank" data-slot="' + slot.id + '" style="padding:4px 8px;border-radius:6px;border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;cursor:pointer;font-size:11px;font-family:inherit">Bank</button>'
+          ) +
+          '<button class="pp-edit" data-slot="' + slot.id + '" style="padding:4px 8px;border-radius:6px;border:1px solid ' + COL_BORDER + ';background:#fff;cursor:pointer;font-size:11px;font-family:inherit;color:' + COL_GRAY + '">...</button>';
+      }
+
+      return '<tr style="border-bottom:1px solid ' + COL_BORDER + '">' +
+        '<td style="padding:10px 14px;font-weight:600;font-size:13px;color:' + COL_DARK + ';white-space:nowrap">' + esc(slot.name) + '</td>' +
+        '<td style="padding:10px 8px;font-size:12px;color:' + COL_DARK + '">' +
+          (tName ? esc(tName) + (tUnit ? ' <span style="color:' + COL_GRAY + '">(' + esc(tUnit) + ')</span>' : '') : '<span style="color:' + COL_GRAY + '">— nicht zugewiesen —</span>') +
+        '</td>' +
+        '<td style="padding:10px 8px;text-align:right;font-size:12px;font-weight:600;color:' + COL_DARK + '">CHF ' + slot.rent + '.00</td>' +
+        '<td style="padding:10px 8px;text-align:center">' + statusBadge + '</td>' +
+        '<td style="padding:10px 8px;text-align:right;white-space:nowrap">' +
+          '<div style="display:flex;gap:4px;justify-content:flex-end">' + actionBtns + '</div>' +
+        '</td>' +
+        '</tr>';
+    }).join('');
+
+    return '<div id="pp-section" style="margin-top:28px;font-family:\'DM Sans\',system-ui,sans-serif">' +
+
+      // Header
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">' +
+      '<div>' +
+      '<div style="font-size:18px;font-weight:700;color:' + COL_DARK + '">🅿 Parkplätze</div>' +
+      '<div style="font-size:12px;color:' + COL_GRAY + ';margin-top:2px">' + assigned + '/12 vergeben · ' + MONTHS_SHORT[cur.month] + ' ' + cur.year + '</div>' +
+      '</div>' +
+      '</div>' +
+
+      // Stats
+      '<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px">' +
+      miniCard('Vergeben', assigned + '/12', '#2563eb', '#eff6ff') +
+      miniCard('Soll ' + MONTHS_SHORT[cur.month], 'CHF ' + sollMonth, COL_DARK, COL_BG) +
+      miniCard('Bezahlt', 'CHF ' + paidMonth, '#16a34a', '#f0fdf4') +
+      miniCard('Offen', 'CHF ' + openMonth, openMonth > 0 ? '#dc2626' : '#16a34a', openMonth > 0 ? '#fef2f2' : '#f0fdf4') +
+      '</div>' +
+
+      // Table
+      '<div style="background:#fff;border:1px solid ' + COL_BORDER + ';border-radius:10px;overflow:hidden">' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<thead><tr style="background:' + COL_BG + '">' +
+      '<th style="text-align:left;padding:10px 14px;font-size:10px;font-weight:700;text-transform:uppercase;color:' + COL_GRAY + ';letter-spacing:0.04em">Parkplatz</th>' +
+      '<th style="text-align:left;padding:10px 8px;font-size:10px;font-weight:700;text-transform:uppercase;color:' + COL_GRAY + '">Mieter</th>' +
+      '<th style="text-align:right;padding:10px 8px;font-size:10px;font-weight:700;text-transform:uppercase;color:' + COL_GRAY + '">Miete</th>' +
+      '<th style="text-align:center;padding:10px 8px;font-size:10px;font-weight:700;text-transform:uppercase;color:' + COL_GRAY + '">Status</th>' +
+      '<th style="text-align:right;padding:10px 8px;font-size:10px;font-weight:700;text-transform:uppercase;color:' + COL_GRAY + '">Aktion</th>' +
+      '</tr></thead>' +
+      '<tbody>' + rowsHtml + '</tbody>' +
+      '</table></div>' +
+
+      '</div>';
+  }
+
+  function miniCard(label, value, color, bg) {
+    return '<div style="background:' + bg + ';padding:10px 14px;border-radius:8px;border:1px solid rgba(0,0,0,0.04)">' +
+      '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:' + COL_GRAY + '">' + label + '</div>' +
+      '<div style="font-size:16px;font-weight:700;color:' + color + ';margin-top:2px">' + value + '</div>' +
+      '</div>';
+  }
+
+  // ===== Assign Dialog =====
+  function openAssignDialog(slotId) {
+    if (document.getElementById('pp-assign-dialog')) return;
+    var data = loadData();
+    var slot = data.slots.find(function (s) { return s.id === slotId; });
+    if (!slot) return;
+
+    var tenants = loadTenants();
+    var now = new Date();
+    var activeTenants = tenants.filter(function (t) { return !t.endDate || new Date(t.endDate) >= now; });
+
+    var opts = '<option value="">— Mieter wählen —</option>' +
+      activeTenants.map(function (t) {
+        var name = t.nameRaw || (t.vorname + ' ' + t.nachname);
+        return '<option value="' + esc(t.id) + '">' + esc((t.unit || '—') + ' — ' + name) + '</option>';
+      }).join('');
+
+    var overlay = document.createElement('div');
+    overlay.id = 'pp-assign-dialog';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99996;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans",system-ui,sans-serif;';
+
+    overlay.innerHTML =
+      '<div style="background:#fff;border-radius:14px;max-width:420px;width:100%;">' +
+      '<div style="padding:18px 22px;border-bottom:1px solid ' + COL_BORDER + ';">' +
+      '<div style="font-size:16px;font-weight:700;">🅿 ' + esc(slot.name) + ' zuweisen</div>' +
+      '</div>' +
+      '<div style="padding:20px 22px;">' +
+
+      '<label style="display:block;font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:' + COL_GRAY + ';margin-bottom:6px">Mieter</label>' +
+      '<select id="pp-ad-tenant" style="width:100%;padding:10px 12px;border:1.5px solid ' + COL_BORDER + ';border-radius:8px;font-size:14px;font-family:inherit;margin-bottom:14px">' + opts + '</select>' +
+
+      '<label style="display:block;font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:' + COL_GRAY + ';margin-bottom:6px">Miete CHF/Monat</label>' +
+      '<input type="number" id="pp-ad-rent" value="' + slot.rent + '" style="width:100%;padding:10px 12px;border:1.5px solid ' + COL_BORDER + ';border-radius:8px;font-size:14px;font-family:inherit;margin-bottom:14px"/>' +
+
+      '<label style="display:block;font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:' + COL_GRAY + ';margin-bottom:6px">Ab Datum</label>' +
+      '<input type="date" id="pp-ad-start" value="' + today() + '" style="width:100%;padding:10px 12px;border:1.5px solid ' + COL_BORDER + ';border-radius:8px;font-size:14px;font-family:inherit;margin-bottom:14px"/>' +
+
+      '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px">' +
+      '<button id="pp-ad-cancel" style="padding:10px 18px;border-radius:8px;border:1px solid ' + COL_BORDER + ';background:#fff;cursor:pointer;font-size:13px">Abbrechen</button>' +
+      '<button id="pp-ad-save" style="padding:10px 18px;border-radius:8px;border:none;background:' + COL_RED + ';color:#fff;cursor:pointer;font-size:13px;font-weight:600">Zuweisen</button>' +
+      '</div></div></div>';
+
+    document.body.appendChild(overlay);
+    var close = function () { overlay.remove(); };
+    document.getElementById('pp-ad-cancel').addEventListener('click', close);
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+
+    document.getElementById('pp-ad-save').addEventListener('click', function () {
+      var tid = document.getElementById('pp-ad-tenant').value;
+      if (!tid) { alert('Bitte Mieter wählen.'); return; }
+      var rent = parseInt(document.getElementById('pp-ad-rent').value, 10) || SLOT_RENT;
+      var startDate = document.getElementById('pp-ad-start').value;
+      var tenant = activeTenants.find(function (t) { return t.id === tid; });
+      var name = tenant ? (tenant.nameRaw || tenant.vorname + ' ' + tenant.nachname) : '';
+
+      var fresh = loadData();
+      for (var i = 0; i < fresh.slots.length; i++) {
+        if (fresh.slots[i].id === slotId) {
+          fresh.slots[i].tenantId = tid;
+          fresh.slots[i].tenantName = name;
+          fresh.slots[i].rent = rent;
+          fresh.slots[i].startDate = startDate;
+          fresh.slots[i].endDate = '';
+          fresh.slots[i].active = true;
+          break;
+        }
+      }
+      saveData(fresh);
+      close();
+      refreshSection();
+      toast('🅿 ' + slot.name + ' → ' + name);
+    });
+  }
+
+  // ===== Edit/Unassign Dialog =====
+  function openEditDialog(slotId) {
+    if (document.getElementById('pp-edit-dialog')) return;
+    var data = loadData();
+    var slot = data.slots.find(function (s) { return s.id === slotId; });
+    if (!slot) return;
+
+    var overlay = document.createElement('div');
+    overlay.id = 'pp-edit-dialog';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99996;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans",system-ui,sans-serif;';
+
+    overlay.innerHTML =
+      '<div style="background:#fff;border-radius:14px;max-width:380px;width:100%;">' +
+      '<div style="padding:18px 22px;border-bottom:1px solid ' + COL_BORDER + ';">' +
+      '<div style="font-size:16px;font-weight:700;">🅿 ' + esc(slot.name) + '</div>' +
+      '<div style="font-size:12px;color:' + COL_GRAY + ';margin-top:2px">Aktuell: ' + esc(slot.tenantName || '—') + '</div>' +
+      '</div>' +
+      '<div style="padding:16px 22px;display:flex;flex-direction:column;gap:8px">' +
+      '<button id="pp-ed-reassign" style="padding:10px;border-radius:8px;border:1px solid ' + COL_BORDER + ';background:#fff;cursor:pointer;font-size:13px;text-align:left;font-family:inherit">🔄 Neu zuweisen (anderer Mieter)</button>' +
+      '<button id="pp-ed-free" style="padding:10px;border-radius:8px;border:1px solid #fecaca;background:#fef2f2;color:#dc2626;cursor:pointer;font-size:13px;text-align:left;font-family:inherit">✕ Kündigen / Freigeben</button>' +
+      '<button id="pp-ed-cancel" style="padding:10px;border-radius:8px;border:1px solid ' + COL_BORDER + ';background:#fff;cursor:pointer;font-size:13px;text-align:left;font-family:inherit;color:' + COL_GRAY + '">Abbrechen</button>' +
+      '</div></div>';
+
+    document.body.appendChild(overlay);
+    var close = function () { overlay.remove(); };
+    document.getElementById('pp-ed-cancel').addEventListener('click', close);
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+
+    document.getElementById('pp-ed-reassign').addEventListener('click', function () {
+      close();
+      setTimeout(function () { openAssignDialog(slotId); }, 100);
+    });
+
+    document.getElementById('pp-ed-free').addEventListener('click', function () {
+      if (!confirm(slot.name + ' wirklich freigeben?\n\n' + (slot.tenantName || 'Mieter') + ' wird entfernt.')) return;
+      var fresh = loadData();
+      for (var i = 0; i < fresh.slots.length; i++) {
+        if (fresh.slots[i].id === slotId) {
+          fresh.slots[i].endDate = today();
+          fresh.slots[i].tenantId = null;
+          fresh.slots[i].tenantName = '';
+          fresh.slots[i].active = false;
+          break;
+        }
+      }
+      saveData(fresh);
+      close();
+      refreshSection();
+      toast('✕ ' + slot.name + ' freigegeben');
+    });
+  }
+
+  // ===== Payment actions =====
+  function markPaid(slotId, channel) {
+    var data = loadData();
+    var cur = getCurrentMonthYear();
+    var slot = data.slots.find(function (s) { return s.id === slotId; });
+    if (!slot) return;
+
+    var existing = getSlotPayment(data, slotId, cur.month, cur.year);
+    if (existing) {
+      existing.paid = true;
+      existing.paidDate = today();
+      existing.channel = channel;
+      existing.amount = slot.rent;
+    } else {
+      data.payments.push({
+        id: genId(),
+        slotId: slotId,
+        tenantId: slot.tenantId,
+        month: cur.month,
+        year: cur.year,
+        paid: true,
+        paidDate: today(),
+        channel: channel,
+        amount: slot.rent
+      });
+    }
+    saveData(data);
+    refreshSection();
+    toast('✓ ' + slot.name + ' bezahlt (' + (channel === 'bar' ? 'Bar' : 'Bank') + ')');
+  }
+
+  function markUnpaid(slotId) {
+    var data = loadData();
+    var cur = getCurrentMonthYear();
+    data.payments = data.payments.filter(function (p) {
+      return !(p.slotId === slotId && p.month === cur.month && p.year === cur.year);
+    });
+    saveData(data);
+    refreshSection();
+    toast('Zurückgesetzt');
+  }
+
+  // ===== Injection =====
+  function isOnZahlungenPage() {
+    var headings = document.querySelectorAll('h1, h2, [class*="title"]');
+    for (var i = 0; i < headings.length; i++) {
+      var t = (headings[i].textContent || '').trim();
+      if (t === 'Zahlungen') return true;
+    }
+    return false;
+  }
+
+  function refreshSection() {
+    var old = document.getElementById('pp-section');
+    if (old) old.remove();
+    injectSection();
+  }
+
+  function injectSection() {
+    if (!isOnZahlungenPage()) {
+      var old = document.getElementById('pp-section');
+      if (old) old.remove();
+      return;
+    }
+    if (document.getElementById('pp-section')) return;
+
+    // Find the main content area
+    var main = document.querySelector('.page-padding');
+    if (!main) {
+      var headings = document.querySelectorAll('h1, h2');
+      for (var i = 0; i < headings.length; i++) {
+        if ((headings[i].textContent || '').trim() === 'Zahlungen') {
+          main = headings[i].parentElement;
+          break;
+        }
+      }
+    }
+    if (!main) return;
+
+    var wrapper = document.createElement('div');
+    wrapper.innerHTML = renderSection();
+    var section = wrapper.firstChild;
+    main.appendChild(section);
+    wireButtons(section);
+    LOG('section injected');
+  }
+
+  function wireButtons(section) {
+    section.querySelectorAll('.pp-assign').forEach(function (btn) {
+      btn.addEventListener('click', function () { openAssignDialog(btn.getAttribute('data-slot')); });
+    });
+    section.querySelectorAll('.pp-edit').forEach(function (btn) {
+      btn.addEventListener('click', function () { openEditDialog(btn.getAttribute('data-slot')); });
+    });
+    section.querySelectorAll('.pp-pay-bar').forEach(function (btn) {
+      btn.addEventListener('click', function () { markPaid(btn.getAttribute('data-slot'), 'bar'); });
+    });
+    section.querySelectorAll('.pp-pay-bank').forEach(function (btn) {
+      btn.addEventListener('click', function () { markPaid(btn.getAttribute('data-slot'), 'bank'); });
+    });
+    section.querySelectorAll('.pp-unpay').forEach(function (btn) {
+      btn.addEventListener('click', function () { markUnpaid(btn.getAttribute('data-slot')); });
+    });
+  }
+
+  // ===== Init =====
+  function init() {
+    setInterval(function () {
+      try { injectSection(); } catch (e) {}
+    }, 1200);
+    [400, 1000, 2500].forEach(function (d) {
+      setTimeout(function () { try { injectSection(); } catch (e) {} }, d);
+    });
     LOG('module ready');
   }
 
