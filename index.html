@@ -666,6 +666,8 @@ react-dom/cjs/react-dom-client.production.js:
 
 
 
+
+
 <script id="letterhead-module">
 /* Letterhead — Shared template matching invoice exactly */
 (function () {
@@ -8222,55 +8224,45 @@ react-dom/cjs/react-dom-client.production.js:
 
   // ===== Email body =====
   function buildEmailBody(data, f) {
-    var lines = [
-      'Sehr geehrte Damen und Herren,',
-      '',
-      'hiermit melden wir folgenden Mieterwechsel:',
-      '',
-      '--- 1. LIEGENSCHAFTSVERWALTUNG ---',
-      'Vermieter: ' + f.firmaName,
-      'Adresse: ' + f.firmaAdresse + ', ' + f.firmaPlz + ' ' + f.firmaStadt,
-      'Kontakt: ' + f.firmaPhone + ' / ' + f.firmaMail,
-      '',
-      '--- 2. LIEGENSCHAFT ---',
-      'Strasse: Alberich Zwyssigstrasse 81',
-      'PLZ, Ort: 5430 Wettingen',
-      'Stockwerk/Zimmer: ' + (data.stockwerk || data.unit || '—'),
-      data.mitbewohner ? 'Mitbewohnende: ' + data.mitbewohner : ''
-    ];
+    var parts = [];
+    parts.push('Sehr geehrte Damen und Herren,');
+    parts.push('');
+    parts.push('wir informieren Sie über einen Mieterwechsel in unserer Immobilie.');
+    parts.push('');
+    parts.push('Vermieter: ' + f.firmaName + ', ' + f.firmaAdresse + ', ' + f.firmaPlz + ' ' + f.firmaStadt + '. Kontakt: ' + f.firmaPhone + ', ' + f.firmaMail + '.');
+    parts.push('');
+    parts.push('Liegenschaft: ' + (data.stockwerk || data.unit || '') + ', Alberich Zwyssigstrasse 81, 5430 Wettingen.' + (data.mitbewohner ? ' Mitbewohnende: ' + data.mitbewohner + '.' : ''));
 
     if (data.type === 'auszug' || data.type === 'beide') {
-      lines.push('');
-      lines.push('--- 3. AUSZIEHENDE PERSON ---');
-      lines.push('Name: ' + data.auszug.name);
-      lines.push('Vorname: ' + data.auszug.vorname);
-      lines.push('Geburtsdatum: ' + toSwiss(data.auszug.geburtsdatum));
-      lines.push('Nationalität: ' + data.auszug.nationalitaet);
-      lines.push('Auszugsdatum: ' + toSwiss(data.auszug.datum));
-      if (data.auszug.wegzug) lines.push('Wegzug nach: ' + data.auszug.wegzug);
+      parts.push('');
+      var aus = 'Ausziehende Person: ' + data.auszug.vorname + ' ' + data.auszug.name;
+      if (data.auszug.geburtsdatum) aus += ', geb. ' + toSwiss(data.auszug.geburtsdatum);
+      if (data.auszug.nationalitaet) aus += ', ' + data.auszug.nationalitaet;
+      aus += '. Auszugsdatum: ' + toSwiss(data.auszug.datum) + '.';
+      if (data.auszug.wegzug) aus += ' Neuer Wohnort: ' + data.auszug.wegzug + '.';
+      parts.push(aus);
     }
 
     if (data.type === 'einzug' || data.type === 'beide') {
-      lines.push('');
-      lines.push('--- 4. EINZIEHENDE PERSON ---');
-      lines.push('Name: ' + data.einzug.name);
-      lines.push('Vorname: ' + data.einzug.vorname);
-      lines.push('Geburtsdatum: ' + toSwiss(data.einzug.geburtsdatum));
-      lines.push('Nationalität: ' + data.einzug.nationalitaet);
-      lines.push('Einzugsdatum: ' + toSwiss(data.einzug.datum));
-      if (data.einzug.zuzug) lines.push('Zuzug von: ' + data.einzug.zuzug);
+      parts.push('');
+      var ein = 'Einziehende Person: ' + data.einzug.vorname + ' ' + data.einzug.name;
+      if (data.einzug.geburtsdatum) ein += ', geb. ' + toSwiss(data.einzug.geburtsdatum);
+      if (data.einzug.nationalitaet) ein += ', ' + data.einzug.nationalitaet;
+      ein += '. Einzugsdatum: ' + toSwiss(data.einzug.datum) + '.';
+      if (data.einzug.zuzug) ein += ' Vorheriger Wohnort: ' + data.einzug.zuzug + '.';
+      parts.push(ein);
     }
 
     if (data.bemerkungen) {
-      lines.push('');
-      lines.push('Bemerkungen: ' + data.bemerkungen);
+      parts.push('');
+      parts.push('Bemerkungen: ' + data.bemerkungen);
     }
 
-    lines.push('');
-    lines.push('Freundliche Grüsse');
-    lines.push(f.firmaName);
+    parts.push('');
+    parts.push('Freundliche Grüsse');
+    parts.push(f.firmaName);
 
-    return lines.filter(function (l) { return l !== undefined; }).join('\n');
+    return parts.join('\n');
   }
 
   // ===== Print Formular =====
@@ -8508,12 +8500,86 @@ react-dom/cjs/react-dom-client.production.js:
     }
     if (!main) return;
 
+    // Hide old CSV workflow elements (drittmeldung, CSV Export, Anleitung)
+    hideOldContent(main);
+
     var wrapper = document.createElement('div');
     wrapper.innerHTML = renderList();
     var section = wrapper.firstChild;
-    main.appendChild(section);
+
+    // Insert at TOP of main content (after the heading)
+    var firstChild = null;
+    for (var j = 0; j < main.children.length; j++) {
+      var ch = main.children[j];
+      // Skip headings, insert after them
+      if (ch.tagName === 'H1' || ch.tagName === 'H2' || (ch.querySelector && ch.querySelector('h1, h2'))) continue;
+      // Skip our own section
+      if (ch.id === 'am-list-section') continue;
+      firstChild = ch;
+      break;
+    }
+    if (firstChild) {
+      main.insertBefore(section, firstChild);
+    } else {
+      main.appendChild(section);
+    }
+
     wireList(section);
-    LOG('list injected');
+    LOG('list injected at top');
+  }
+
+  function hideOldContent(container) {
+    // Hide: Workflow hint bar, CSV Export card, Anleitung card, drittmeldung button
+    var allChildren = container.querySelectorAll('div, a, button, span, p');
+    for (var i = 0; i < allChildren.length; i++) {
+      var el = allChildren[i];
+      if (el.id === 'am-list-section') continue;
+      var txt = (el.textContent || '').trim();
+
+      // Relabel subtitle "CSV für drittmeldung.ch generieren"
+      if (el.childNodes.length === 1 && el.childNodes[0].nodeType === 3) {
+        var nodeVal = el.childNodes[0].nodeValue || '';
+        if (nodeVal.indexOf('CSV f') !== -1 && nodeVal.indexOf('drittmeldung') !== -1) {
+          el.childNodes[0].nodeValue = 'Gemeinde-Meldungen verwalten und versenden';
+        }
+      }
+
+      // Hide "drittmeldung.ch öffnen" button
+      if (txt === '→ drittmeldung.ch öffnen' || txt === 'drittmeldung.ch öffnen') {
+        el.style.display = 'none';
+        continue;
+      }
+
+      // Hide CSV Export card
+      if (txt.indexOf('CSV Export') !== -1 && txt.indexOf('Drittmeldepflicht') !== -1 && el.children.length > 1) {
+        el.style.display = 'none';
+        continue;
+      }
+
+      // Hide Anleitung card
+      if (txt.indexOf('Anleitung') !== -1 && txt.indexOf('Mieter wählen') !== -1 && txt.indexOf('Hochladen') !== -1) {
+        el.style.display = 'none';
+        continue;
+      }
+
+      // Hide workflow hint bar ("Workflow: Mieter auswählen → ...")
+      if (txt.indexOf('Workflow:') !== -1 && txt.indexOf('CSV herunterladen') !== -1) {
+        el.style.display = 'none';
+        continue;
+      }
+
+      // Hide "→ Zur drittmeldung.ch Upload-Seite" link
+      if (txt.indexOf('drittmeldung.ch Upload') !== -1) {
+        el.style.display = 'none';
+        continue;
+      }
+
+      // Hide "CSV herunterladen" button
+      if (/CSV herunterladen/.test(txt) && el.tagName === 'BUTTON') {
+        el.style.display = 'none';
+        continue;
+      }
+    }
   }
 
   // ===== Popup for new/departing tenants =====
